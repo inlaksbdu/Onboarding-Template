@@ -45,3 +45,5 @@ class Customer:
     mother_occupation = Column(String(50), nullable=True)
     birth_certificate_issue_date = Column(Date, nullable=False)
     
+    def __repr__(self):
+        return f"<Customer {self.first_name} {self.last_name} (ID: {self.id})>"
