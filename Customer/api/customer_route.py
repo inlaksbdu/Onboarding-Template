@@ -12,6 +12,13 @@ from Library.utils import (
     encode_image_to_base64,
     DocumentExtractionResult
 )
+from fastapi import APIRouter, Depends
+from dependency_injector.wiring import inject, Provide
+from bootstrap.container import Container
+from Customer.services.customer_service import CustomerService
+from Customer.dto.requests.customer_request import CustomerCreateRequest, CustomerUpdateRequest
+from Customer.dto.response.customer_response import CustomerResponse
+
 
 router = APIRouter(
     prefix="/customer",
@@ -66,3 +73,13 @@ async def extract_document_info(
     )
     
     return results
+
+
+
+@router.post("/", response_model=CustomerResponse)
+@inject
+async def create_customer(
+    customer_data: CustomerCreateRequest,
+    customer_service: CustomerService = Depends(Provide[Container.customer_service])
+):
+    return await customer_service.create_customer(customer_data)

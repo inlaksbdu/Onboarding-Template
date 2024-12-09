@@ -11,11 +11,9 @@ class Container(containers.DeclarativeContainer):
     # Configuration
     wiring_config = containers.WiringConfiguration(
         modules=[
-            "routes.customer_routes",
-            # Add other route modules here
+            "Customer.api.customer_route"  # Updated path
         ]
     )
-
 
     # Repositories
     customer_repository = providers.Factory(

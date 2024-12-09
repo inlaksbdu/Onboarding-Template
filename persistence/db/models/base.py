@@ -3,12 +3,12 @@ import ssl
 # import asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
-from persistence.db.configuration.config import get_auth_config
+from Library.config import settings
 from sqlalchemy.orm import sessionmaker
 # Set the event loop policy to WindowsSelectorEventLoopPolicy
 # asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-config = get_auth_config()
+config = settings
 
 
 """
