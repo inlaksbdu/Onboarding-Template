@@ -1,22 +1,47 @@
 import base64
 import asyncio
 from typing import List, Optional, Dict, Union
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from Library.config import settings
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
 import os
 
+class DocumentInfo(BaseModel):
+    """
+    Structured model for document information extraction
+    """
+    model_config = ConfigDict(extra='forbid')
+    
+    full_name: str = Field(description="Full name from the document (combine surname and firstname if separate)")
+    date_of_birth: str = Field(description="Date of birth in the format shown on document")
+    document_type: str = Field(description="Type of document (ID Card/Birth Certificate)")
+    identification_number: str = Field(description="Any ID number or document number shown")
+    nationality: Optional[str] = Field(default=None, description="Nationality of the individual")
+    gender: Optional[str] = Field(default=None, description="Gender/Sex of the individual")
+    address: Optional[str] = Field(default=None, description="Address if shown on document")
+    raw_text: str = Field(description="The complete raw text extracted from the document")
+
+    id_card_issue_date: str= Field(description="the Date the card or document was issued to the individual")
+    id_card_expiry_date: str= Field(description="the Date the card or document is expected to expire")
+    where_born: str = Field(description="the Location where the individual was born")
+    father_name: Optional[str] = Field(default=None, description="Father's name if shown on document")
+    father_occupation: Optional[str] = Field(default=None, description="Father's occupation if shown on document")
+    mother_name: Optional[str] = Field(default=None, description="Mother's name if shown on document")
+    mother_occupation: Optional[str] = Field(default=None, description="Mother's occupation if shown on document")
+    # Birth Certificate Information
+    birth_certificate_margin_number: Optional[str] = Field(default=None, description="Birth Certificate Margin Number")
+
+    birth_certificate_registration_date: Optional[str] = Field(default=None, description="Birth Certificate Registration Date")
+
 class DocumentExtractionResult(BaseModel):
     """
-    Structured model for extracted document information
+    Final result model that includes both extracted info and any additional details
     """
-    full_name: Optional[str] = Field(None, description="Full name of the individual")
-    date_of_birth: Optional[str] = Field(None, description="Date of birth")
-    document_type: Optional[str] = Field(None, description="Type of document (ID Card/Birth Certificate)")
-    identification_number: Optional[str] = Field(None, description="Unique identification number")
-    address: Optional[str] = Field(None, description="Address of the individual")
-    additional_details: Optional[Dict[str, str]] = Field(None, description="Any additional extracted information")
+    model_config = ConfigDict(extra='forbid')
+    
+    document_info: Optional[DocumentInfo] = Field(default=None, description="Structured document information")
+    additional_details: Optional[Dict[str, str]] = Field(default=None, description="Any additional details or error information")
 
 class DocumentOCRProcessor:
     """
@@ -34,11 +59,12 @@ class DocumentOCRProcessor:
             model (str): Claude model to use
             max_tokens (int): Maximum tokens for response
         """
-        self.llm = ChatAnthropic(
+        base_model = ChatAnthropic(
             model_name=model,
             max_tokens_to_sample=max_tokens,
             anthropic_api_key=settings.anthropic_api_key
         )
+        self.llm = base_model.with_structured_output(DocumentInfo, name="extract_document_info")
 
     async def process_document(
         self, 
@@ -56,15 +82,18 @@ class DocumentOCRProcessor:
             DocumentExtractionResult: Extracted document information
         """
         prompt = f"""
-        You are an expert at extracting information from {document_type} documents.
-        Carefully and accurately extract ALL visible text fields. 
+        Analyze this {document_type} image and extract the required information and return the answer in the language of the document .
+        Make sure to extract all visible text fields accurately.
+        
         IMPORTANT: 
         - Be precise and structured
-        - Extract full name, date of birth, ID number and others
         - If information is partially visible or unclear, mark as None
         - Do NOT hallucinate or make up information
+        - Preserve the exact format of dates and numbers
+        - For names, combine surname and firstname if they are separate
+        - Extract any ID numbers or document numbers shown
         
-        Respond in a clean, structured format focusing on key details.
+        Call the extract_document_info function with the extracted information.
         """
         
         message_content = [
@@ -78,43 +107,20 @@ class DocumentOCRProcessor:
         message = HumanMessage(content=message_content)
         
         try:
-            response = await asyncio.to_thread(
-                self.llm.invoke, 
+            doc_info = await asyncio.to_thread(
+                self.llm.invoke,
                 [message]
             )
             
-            # Basic parsing of response 
-            # In production, you might want more robust JSON parsing
-            extracted_text = response.content
-            
             return DocumentExtractionResult(
-                full_name=self._extract_field(extracted_text, "full name"),
-                date_of_birth=self._extract_field(extracted_text, "date of birth"),
-                document_type=document_type,
-                identification_number=self._extract_field(extracted_text, "id number"),
-                additional_details={"raw_text": extracted_text}
+                document_info=doc_info,
+                additional_details={"status": "success"}
             )
-        
+            
         except Exception as e:
-            # Log error in production
             return DocumentExtractionResult(
                 additional_details={"error": str(e)}
             )
-
-    def _extract_field(self, text: str, field: str) -> Optional[str]:
-        """
-        Basic field extraction helper
-        
-        Args:
-            text (str): Full extracted text
-            field (str): Field to extract
-        
-        Returns:
-            Optional extracted field value
-        """
-        # Implement basic extraction logic
-        # This is a placeholder and should be enhanced
-        return None
 
 class MultiDocumentProcessor:
     """

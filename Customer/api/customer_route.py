@@ -59,21 +59,31 @@ async def extract_document_info(
                 detail=f"Unsupported file type: {file.content_type}"
             )
     
-    # Read file contents
-    image_bases = []
-    for file in documents:
-        content = await file.read()
-        image_bases.append(encode_image_to_base64(content))
-    
-    # Process documents
-    processor = MultiDocumentProcessor()
-    results = await processor.process_documents(
-        images=image_bases, 
-        document_types=document_types
-    )
-    
-    return results
-
+    try:
+        # Read file contents
+        image_bases = []
+        for file in documents:
+            content = await file.read()
+            image_bases.append(encode_image_to_base64(content))
+        
+        # Set default document types if not provided
+        if not document_types:
+            document_types = ["ID Card"] * len(documents)
+        
+        # Process documents
+        processor = MultiDocumentProcessor()
+        results = await processor.process_documents(
+            images=image_bases,
+            document_types=document_types
+        )
+        
+        return results
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error processing documents: {str(e)}"
+        )
 
 
 @router.post("/", response_model=CustomerResponse)
