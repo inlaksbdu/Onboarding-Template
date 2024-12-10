@@ -2,9 +2,10 @@ import base64
 import asyncio
 from typing import List, Optional, Dict, Union
 from pydantic import BaseModel, Field
-
+from Library.config import settings
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
+import os
 
 class DocumentExtractionResult(BaseModel):
     """
@@ -23,7 +24,7 @@ class DocumentOCRProcessor:
     """
     def __init__(
         self, 
-        model: str = "claude-3-5-sonnet-20241022", 
+        model: str = "claude-3-opus-20240229", 
         max_tokens: int = 4096
     ):
         """
@@ -34,9 +35,9 @@ class DocumentOCRProcessor:
             max_tokens (int): Maximum tokens for response
         """
         self.llm = ChatAnthropic(
-            model=model,
-            temperature=0,
-            max_tokens=max_tokens
+            model_name=model,
+            max_tokens_to_sample=max_tokens,
+            anthropic_api_key=settings.anthropic_api_key
         )
 
     async def process_document(
