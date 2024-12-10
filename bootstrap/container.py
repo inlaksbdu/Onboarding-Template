@@ -1,8 +1,9 @@
 from dependency_injector import containers, providers
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from Customer.db.repository.customer_repository import CustomerRepository
+from Customer.db.repository.custimer_repository import CustomerRepository
 from Customer.services.customer_service import CustomerService
+from Customer.services.verification_service import VerificationService
 from persistence.db.models.base import SessionLocal
 
 class Container(containers.DeclarativeContainer):
@@ -24,4 +25,8 @@ class Container(containers.DeclarativeContainer):
     customer_service = providers.Factory(
         CustomerService,
         customer_repository=customer_repository
-    )
+    )   
+        
+    verification_service = providers.Singleton(
+            VerificationService
+        )

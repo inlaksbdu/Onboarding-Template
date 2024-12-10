@@ -1,11 +1,7 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from bootstrap.container import Container
 from Customer.api.customer_route import router as customer_router
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from bootstrap.container import Container
-from Customer.api.customer_route import router as customer_router
 from loguru import logger
 
 import uvicorn

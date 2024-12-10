@@ -2,7 +2,7 @@ from loguru import logger
 from fastapi import HTTPException
 from typing import List
 
-from Customer.db.repository.customer_repository import CustomerRepository
+from Customer.db.repository.custimer_repository import CustomerRepository
 from persistence.db.models.customer import Customer
 from Customer.dto.requests.customer_request import CustomerCreateRequest, CustomerUpdateRequest
 from Customer.dto.response.customer_response import CustomerResponse
