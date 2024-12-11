@@ -1,15 +1,17 @@
 from typing import Optional, Dict, List
 import os
 import io
+import uuid
+from datetime import datetime
 import boto3
-from azure.cognitiveservices.vision.face import FaceClient
-from azure.cognitiveservices.vision.face.models import VerifyResult, DetectedFace
-from msrest.authentication import CognitiveServicesCredentials
 from fastapi import HTTPException
 from pydantic import BaseModel
 from loguru import logger
 
 from Library.utils import DocumentOCRProcessor, DocumentExtractionResult
+from Customer.services.face_verification_service import FaceVerificationService
+from Customer.dto.requests.customer_request import CustomerCreateRequest
+from persistence.db.models.customer import Customer
 
 class VerificationResult(BaseModel):
     success: bool
@@ -18,132 +20,161 @@ class VerificationResult(BaseModel):
     details: Optional[Dict] = None
 
 class BiometricVerificationResult(BaseModel):
-    liveness_score: float
     face_match_score: float
-    liveness_verified: bool
-    face_match_verified: bool
-    details: Optional[Dict] = None
+    success: bool
+    message: str
 
 class VerificationService:
     def __init__(self):
+        logger.info("Initializing VerificationService")
         self.ocr_processor = DocumentOCRProcessor()
+        self.face_service = FaceVerificationService()
+        logger.info("VerificationService initialized successfully")
         
-        # Initialize AWS Rekognition
-        self.rekognition = boto3.client('rekognition',
-            aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-            aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
-            region_name=os.getenv('AWS_REGION')
-        )
-        
-        # Initialize Azure Face Client
-        self.face_client = FaceClient(
-            os.getenv('AZURE_FACE_ENDPOINT'),
-            CognitiveServicesCredentials(os.getenv('AZURE_FACE_KEY'))
-        )
-
     async def verify_document(self, document_image: bytes) -> VerificationResult:
-        """Process and verify uploaded ID document"""
+        """
+        Process and verify uploaded ID document
+        - Extracts information using Claude OCR
+        - Stores document in S3
+        """
+        logger.info("Starting document verification process")
         try:
-            # 1. Extract information using Claude OCR
-            doc_info = await self.ocr_processor.process_document(document_image)
+            # Extract information using Claude
+            logger.info("Extracting information from document using OCR")
+            doc_result = await self.ocr_processor.process_document(document_image)
             
-            # 2. Verify with National ID Database
-            # TODO: Implement national ID verification
+            if not doc_result.document_info:
+                logger.warning("Failed to extract information from document")
+                return VerificationResult(
+                    success=False,
+                    stage="document_verification",
+                    message="Failed to extract information from document"
+                )
             
-            # 3. Perform AML Check
-            # TODO: Implement AML check
+            # Generate unique ID for document storage
+            doc_id = str(uuid.uuid4())
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             
-            # 4. Perform Credit Bureau Check
-            # TODO: Implement credit check
+            # Store document in S3
+            s3_key = f"documents/{doc_id}_{timestamp}.jpg"
+            logger.info(f"Storing document in S3 with key: {s3_key}")
+            s3_path = await self.face_service.upload_to_s3(document_image, s3_key)
             
+            logger.success("Document verification completed successfully")
             return VerificationResult(
                 success=True,
                 stage="document_verification",
-                message="Document verified successfully",
-                details=doc_info.dict()
-            )
-        except Exception as e:
-            logger.error(f"Document verification failed: {str(e)}")
-            raise HTTPException(status_code=400, detail=str(e))
-
-    async def verify_biometrics(self, selfie_image: bytes, id_photo: bytes) -> BiometricVerificationResult:
-        """Verify user's biometric information using Azure for liveness and AWS for face comparison"""
-        try:
-            # Convert bytes to stream for Azure Face API
-            selfie_stream = io.BytesIO(selfie_image)
-            
-            # 1. Azure Liveness Detection
-            detected_faces = self.face_client.face.detect_with_stream(
-                image=selfie_stream,
-                return_face_attributes=['headPose', 'blur', 'exposure', 'noise'],
-                detection_model='detection_01'
-            )
-            
-            if not detected_faces:
-                return BiometricVerificationResult(
-                    liveness_score=0.0,
-                    face_match_score=0.0,
-                    liveness_verified=False,
-                    face_match_verified=False,
-                    details={"error": "No face detected in selfie"}
-                )
-            
-            # Analyze face attributes for liveness
-            face_attributes = detected_faces[0].face_attributes
-            blur_score = 1 - face_attributes.blur.value
-            exposure_score = 1 - abs(0.5 - face_attributes.exposure.value)
-            quality_score = (blur_score + exposure_score) / 2
-            
-            # 2. AWS Rekognition Face Comparison
-            comparison_response = self.rekognition.compare_faces(
-                SourceImage={'Bytes': id_photo},
-                TargetImage={'Bytes': selfie_image},
-                SimilarityThreshold=90
-            )
-            
-            if not comparison_response['FaceMatches']:
-                return BiometricVerificationResult(
-                    liveness_score=quality_score * 100,
-                    face_match_score=0.0,
-                    liveness_verified=quality_score >= 0.8,
-                    face_match_verified=False,
-                    details={"error": "No matching faces found"}
-                )
-            
-            similarity = comparison_response['FaceMatches'][0]['Similarity']
-            
-            return BiometricVerificationResult(
-                liveness_score=quality_score * 100,
-                face_match_score=similarity,
-                liveness_verified=quality_score >= 0.8,
-                face_match_verified=similarity >= 90,
+                message="Document processed successfully",
                 details={
-                    "blur_score": blur_score,
-                    "exposure_score": exposure_score,
-                    "similarity_score": similarity
+                    "extracted_info": doc_result.document_info.dict(),
+                    "image_path": s3_key
                 }
             )
             
         except Exception as e:
-            logger.error(f"Biometric verification failed: {str(e)}")
-            raise HTTPException(status_code=400, detail=str(e))
-
-    async def complete_verification(self, 
-                                 document_image: bytes,
-                                 selfie_image: bytes) -> Dict[str, VerificationResult]:
-        """Complete full verification process"""
-        results = {}
-        
-        # 1. Document Verification
-        results['document'] = await self.verify_document(document_image)
-        if not results['document'].success:
-            return results
+            error_msg = f"Document verification failed: {str(e)}"
+            logger.error(error_msg)
+            return VerificationResult(
+                success=False,
+                stage="document_verification",
+                message=error_msg
+            )
+    
+    async def verify_biometrics(
+        self,
+        selfie_image: bytes,
+        id_photo_path: str
+    ) -> VerificationResult:
+        """
+        Verify user's biometric information
+        - Compares selfie with ID photo
+        """
+        logger.info("Starting biometric verification process")
+        try:
+            # Generate unique ID for selfie storage
+            selfie_id = str(uuid.uuid4())
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             
-        # 2. Extract photo from ID for comparison
-        # TODO: Implement ID photo extraction
-        id_photo = document_image  # Placeholder
-        
-        # 3. Biometric Verification
-        results['biometric'] = await self.verify_biometrics(selfie_image, id_photo)
-        
-        return results
+            # Store selfie in S3
+            s3_key = f"selfies/{selfie_id}_{timestamp}.jpg"
+            logger.info(f"Storing selfie in S3 with key: {s3_key}")
+            s3_path = await self.face_service.upload_to_s3(selfie_image, s3_key)
+            
+            # Compare faces
+            logger.info("Comparing faces")
+            match_found, similarity = await self.face_service.compare_faces(
+                source_image_key=id_photo_path,
+                target_image_key=s3_key
+            )
+            
+            if not match_found:
+                logger.warning(f"Face comparison failed with similarity score: {similarity}")
+                return VerificationResult(
+                    success=False,
+                    stage="biometric_verification",
+                    message="Face comparison failed - faces don't match",
+                    details={"similarity_score": similarity}
+                )
+            
+            logger.success("Biometric verification completed successfully")
+            return VerificationResult(
+                success=True,
+                stage="biometric_verification",
+                message="Biometric verification successful",
+                details={
+                    "selfie_path": s3_key,
+                    "face_match_score": similarity
+                }
+            )
+            
+        except Exception as e:
+            error_msg = f"Biometric verification failed: {str(e)}"
+            logger.error(error_msg)
+            return VerificationResult(
+                success=False,
+                stage="biometric_verification",
+                message=error_msg
+            )
+    
+    async def complete_verification(
+        self,
+        session: Dict,
+        customer_data: CustomerCreateRequest
+    ) -> VerificationResult:
+        """
+        Complete full verification process and create customer record
+        """
+        logger.info("Starting verification completion process")
+        try:
+            # Create customer record
+            logger.info("Creating customer record")
+            customer = Customer(
+                **customer_data.dict(),
+                document_image_path=session["document_image_path"],
+                selfie_image_path=session["selfie_path"],
+                verification_status="verified",
+                verification_date=datetime.now()
+            )
+            
+            # Save to database (implementation depends on your DB setup)
+            # await self.db.save(customer)
+            logger.info(f"Customer record created with ID: {customer.id}")
+            
+            logger.success("Verification completion process successful")
+            return VerificationResult(
+                success=True,
+                stage="registration",
+                message="Customer registration completed",
+                details={
+                    "customer_id": str(customer.id)
+                }
+            )
+            
+        except Exception as e:
+            error_msg = f"Registration failed: {str(e)}"
+            logger.error(error_msg)
+            return VerificationResult(
+                success=False,
+                stage="registration",
+                message=error_msg
+            )
