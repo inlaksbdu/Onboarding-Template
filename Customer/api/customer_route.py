@@ -113,6 +113,17 @@ async def extract_document_info(
             document_types=doc_types
         )
         
+        # Check for extraction errors
+        for idx, result in enumerate(results):
+            if not result.document_info:
+                error_msg = result.additional_details.get('error', 'Unknown error')
+                logger.error(f"Document {idx + 1} extraction failed: {error_msg}")
+                if idx == 0:  # If primary document (ID card) failed
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail=f"Failed to extract information from ID card: {error_msg}"
+                    )
+        
         # Create registration session
         session_id = str(uuid.uuid4())
         logger.info(f"Creating registration session: {session_id}")

@@ -3,32 +3,43 @@ import ssl
 # import asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
-from Library.config import settings
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy import URL
+from .db_model_base import Base
 # Set the event loop policy to WindowsSelectorEventLoopPolicy
 # asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
-config = settings
+from persistence.db.configuration.config import get_auth_config
+config = get_auth_config()
 
 
 """
 Use asyncpg driver for postgres configuration
 """
 
-database_connection_string = (
-    f"postgresql+asyncpg://{config.database_username}"
-    f":{config.database_password}@{config.database_host}"
-    f"/{config.database_name}"
+SQLALCHEMY_DATABASE_URL = URL.create(
+    drivername="postgresql+asyncpg",
+    username=config.database_username,
+    password=config.database_password,
+    host=config.database_host,
+    port=config.database_port,
+    database=config.database_name,
 )
 
-SQLALCHEMY_DATABASE_URL = database_connection_string
+ssl_context = ssl.create_default_context()
+ssl_context.check_hostname = False
+ssl_context.verify_mode = ssl.CERT_NONE
+
 
 
 def create_db_engine():
     # return create_async_engine(
     #     database_connection_string, poolclass=NullPool, echo=True, future=True
     # )
-    return create_async_engine(database_connection_string, echo=True, future=True)
+    return create_async_engine(SQLALCHEMY_DATABASE_URL,
+     echo=True, 
+     future=True,
+     connect_args={"ssl": ssl_context},
+     )
 
 
 engine = create_db_engine()
@@ -44,6 +55,10 @@ async def get_db() -> AsyncSession:
         finally:
             await session.close()
 
+
+async def init_db() -> None:
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 """
 synchronous session
 

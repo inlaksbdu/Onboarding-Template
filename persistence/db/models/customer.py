@@ -3,9 +3,9 @@ from datetime import date
 from sqlalchemy import Column, String, Date, Enum, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
+from persistence.db.models.db_model_base import Base, TimestampMixin
 
-
-class Customer:
+class Customer(TimestampMixin, Base):
     __tablename__ = 'customers'
 
     # UUID Primary Key
@@ -14,6 +14,7 @@ class Customer:
     # Personal Information
     first_name = Column(String(50), nullable=False)
     last_name = Column(String(50), nullable=False)
+    password = Column(String(50), nullable=False)
     gender = Column(String(6), nullable=False)
     date_of_birth = Column(Date, nullable=False)
     

@@ -64,52 +64,116 @@ class FaceVerificationService:
         Returns:
             Tuple[bool, Dict]: (is_valid, details)
         """
-        logger.info("Verifying face quality")
+        logger.info("Starting face quality verification")
         try:
+            # Request specific attributes we want to check
             response = self.rekognition.detect_faces(
                 Image={'Bytes': image_bytes},
-                Attributes=['ALL']
+                Attributes=[
+                    'DEFAULT',  # Includes BoundingBox, Confidence, Pose, Quality, and Landmarks
+                    'AGE_RANGE',
+                    'SUNGLASSES',
+                    'EYES_OPEN',
+                    'MOUTH_OPEN',
+                    'FACE_OCCLUDED'
+                ]
             )
 
-            if not response['FaceDetails']:
+            if not response.get('FaceDetails'):
                 logger.warning("No face detected in the image")
                 return False, {
-                    "error": "No face detected in the image",
+                    "error": "No face detected",
                     "suggestions": ["Please ensure your face is clearly visible in the image"]
                 }
 
-            face_detail = response['FaceDetails'][0]
+            # Get the first (and should be only) face
+            face = response['FaceDetails'][0]
             
-            # Enhanced quality checks
-            checks = {
-                "is_face_detected": True,
-                "is_human": face_detail.get('Confidence', 0) > 95,  # High confidence threshold for human face
-                "face_occluded": any([
-                    face_detail.get('Occlusions', []).get('EyesOccluded', {}).get('Value', False),
-                    face_detail.get('Occlusions', []).get('MouthOccluded', {}).get('Value', False),
-                    face_detail.get('Occlusions', []).get('NoseOccluded', {}).get('Value', False)
-                ]),
-                "pose_valid": all([
-                    abs(face_detail.get('Pose', {}).get('Pitch', 0)) < 20,  # Face looking straight ahead
-                    abs(face_detail.get('Pose', {}).get('Roll', 0)) < 20,   # Head not tilted
-                    abs(face_detail.get('Pose', {}).get('Yaw', 0)) < 20     # Face not turned sideways
-                ]),
-                "eyes_open": face_detail.get('EyesOpen', {}).get('Value', True),
-                "quality_brightness": face_detail.get('Quality', {}).get('Brightness', 0) > 50,
-                "quality_sharpness": face_detail.get('Quality', {}).get('Sharpness', 0) > 50,
-                "sunglasses": not face_detail.get('Sunglasses', {}).get('Value', False),
-                "mouth_open": not face_detail.get('MouthOpen', {}).get('Value', False),
-                "multiple_faces": len(response['FaceDetails']) == 1  # Only one face should be present
+            # Initialize quality checks dictionary
+            quality_checks = {}
+            suggestions = []
+            
+            # 1. Check Face Detection Confidence
+            quality_checks["face_confidence"] = face.get('Confidence', 0) > 90
+            if not quality_checks["face_confidence"]:
+                suggestions.append("Please provide a clearer photo of your face")
+            
+            # 2. Age Range Check (store for reference)
+            age_range = face.get('AgeRange', {})
+            quality_checks["age_range"] = {
+                "low": age_range.get('Low', 0),
+                "high": age_range.get('High', 0)
             }
             
-            is_valid = all(checks.values())
+            # 3. Sunglasses Check
+            sunglasses = face.get('Sunglasses', {})
+            quality_checks["sunglasses"] = not sunglasses.get('Value', False)
+            if not quality_checks["sunglasses"]:
+                suggestions.append("Please remove sunglasses")
+            
+            # 4. Eyes Open Check
+            eyes_open = face.get('EyesOpen', {})
+            quality_checks["eyes_open"] = eyes_open.get('Value', True)
+            if not quality_checks["eyes_open"]:
+                suggestions.append("Please open your eyes fully")
+            
+            # 5. Mouth Open Check
+            mouth_open = face.get('MouthOpen', {})
+            quality_checks["mouth_closed"] = not mouth_open.get('Value', False)
+            if not quality_checks["mouth_closed"]:
+                suggestions.append("Please close your mouth")
+            
+            # 6. Face Occlusion Check
+            face_occluded = face.get('FaceOccluded', {})
+            quality_checks["face_clear"] = not face_occluded.get('Value', False)
+            if not quality_checks["face_clear"]:
+                suggestions.append("Please remove any objects blocking your face")
+            
+            # 7. Image Quality Checks
+            quality = face.get('Quality', {})
+            brightness = quality.get('Brightness', 0)
+            sharpness = quality.get('Sharpness', 0)
+            
+            quality_checks["brightness"] = brightness > 50
+            quality_checks["sharpness"] = sharpness > 50
+            
+            if not quality_checks["brightness"]:
+                suggestions.append("Please take the photo in better lighting")
+            if not quality_checks["sharpness"]:
+                suggestions.append("Please ensure the image is clear and not blurry")
+            
+            # 8. Face Pose Check (ensure face is looking straight ahead)
+            pose = face.get('Pose', {})
+            pose_threshold = 20  # degrees
+            quality_checks["pose_valid"] = all([
+                abs(pose.get('Pitch', 0)) < pose_threshold,
+                abs(pose.get('Roll', 0)) < pose_threshold,
+                abs(pose.get('Yaw', 0)) < pose_threshold
+            ])
+            if not quality_checks["pose_valid"]:
+                suggestions.append("Please look straight at the camera")
+            
+            # Overall validation
+            required_checks = [
+                "face_confidence",
+                "sunglasses",
+                "eyes_open",
+                "mouth_closed",
+                "face_clear",
+                "brightness",
+                "sharpness",
+                "pose_valid"
+            ]
+            
+            is_valid = all(quality_checks.get(check, False) for check in required_checks)
             
             logger.info(f"Face quality verification complete: is_valid={is_valid}")
-            logger.debug(f"Quality check details: {checks}")
+            logger.debug(f"Quality check details: {quality_checks}")
             
             return is_valid, {
-                "checks": checks,
-                "suggestions": self._generate_suggestions(checks)
+                "checks": quality_checks,
+                "suggestions": suggestions,
+                "age_range": quality_checks["age_range"]
             }
             
         except ClientError as e:
@@ -117,52 +181,37 @@ class FaceVerificationService:
             error_msg = str(e)
             logger.error(f"AWS Rekognition DetectFaces failed: {error_msg}")
             
-            if error_code == 'InvalidImageFormatException':
-                return False, {
+            error_mapping = {
+                'InvalidImageFormatException': {
                     "error": "Invalid image format",
                     "suggestions": ["Please provide a valid JPEG or PNG image"]
-                }
-            elif error_code == 'InvalidParameterException':
-                return False, {
-                    "error": "Invalid image",
-                    "suggestions": ["Please provide a clear photo with your face visible"]
-                }
-            elif error_code == 'ImageTooLargeException':
-                return False, {
+                },
+                'ImageTooLargeException': {
                     "error": "Image too large",
                     "suggestions": ["Please provide an image smaller than 5MB"]
+                },
+                'InvalidParameterException': {
+                    "error": "Invalid image",
+                    "suggestions": ["Please provide a clear photo with your face visible"]
+                },
+                'AccessDeniedException': {
+                    "error": "Access denied",
+                    "suggestions": ["Please check your AWS credentials"]
+                },
+                'ProvisionedThroughputExceededException': {
+                    "error": "Too many requests",
+                    "suggestions": ["Please try again in a few moments"]
+                },
+                'ThrottlingException': {
+                    "error": "Service throttled",
+                    "suggestions": ["Please try again in a few moments"]
                 }
+            }
+            
+            if error_code in error_mapping:
+                return False, error_mapping[error_code]
             else:
                 raise Exception(f"Face detection failed: {error_msg}")
-
-    def _generate_suggestions(self, checks: Dict[str, bool]) -> list:
-        """Generate user-friendly suggestions based on failed checks"""
-        logger.info("Generating suggestions")
-        suggestions = []
-        
-        if not checks["is_face_detected"]:
-            suggestions.append("Please ensure your face is clearly visible in the image")
-        if not checks["is_human"]:
-            suggestions.append("Please provide a clear photo of a human face")
-        if checks["face_occluded"]:
-            suggestions.append("Please remove any objects blocking your face (hands, mask, etc.)")
-        if not checks["pose_valid"]:
-            suggestions.append("Please look straight at the camera without tilting or turning your head")
-        if not checks["eyes_open"]:
-            suggestions.append("Please open your eyes for the photo")
-        if not checks["quality_brightness"]:
-            suggestions.append("Please take the photo in better lighting")
-        if not checks["quality_sharpness"]:
-            suggestions.append("Please hold the camera steady and ensure the image is clear")
-        if not checks["sunglasses"]:
-            suggestions.append("Please remove sunglasses or any eye accessories")
-        if checks["mouth_open"]:
-            suggestions.append("Please close your mouth for the photo")
-        if not checks["multiple_faces"]:
-            suggestions.append("Please ensure only your face is visible in the photo")
-            
-        logger.info(f"Generated {len(suggestions)} suggestions")
-        return suggestions
 
     async def compare_faces(
         self,
@@ -233,3 +282,32 @@ class FaceVerificationService:
                 raise Exception("One or both images are in an invalid format (must be JPG or PNG)")
             else:
                 raise Exception(f"Face comparison failed: {error_msg}")
+
+    def _generate_suggestions(self, checks: Dict[str, bool]) -> list:
+        """Generate user-friendly suggestions based on failed checks"""
+        logger.info("Generating suggestions")
+        suggestions = []
+        
+        if not checks["is_face_detected"]:
+            suggestions.append("Please ensure your face is clearly visible in the image")
+        if not checks["is_human"]:
+            suggestions.append("Please provide a clear photo of a human face")
+        if checks["face_occluded"]:
+            suggestions.append("Please remove any objects blocking your face (hands, mask, etc.)")
+        if not checks["pose_valid"]:
+            suggestions.append("Please look straight at the camera without tilting or turning your head")
+        if not checks["eyes_open"]:
+            suggestions.append("Please open your eyes for the photo")
+        if not checks["quality_brightness"]:
+            suggestions.append("Please take the photo in better lighting")
+        if not checks["quality_sharpness"]:
+            suggestions.append("Please hold the camera steady and ensure the image is clear")
+        if not checks["sunglasses"]:
+            suggestions.append("Please remove sunglasses or any eye accessories")
+        if checks["mouth_open"]:
+            suggestions.append("Please close your mouth for the photo")
+        if not checks["multiple_faces"]:
+            suggestions.append("Please ensure only your face is visible in the photo")
+            
+        logger.info(f"Generated {len(suggestions)} suggestions")
+        return suggestions

@@ -1,4 +1,5 @@
 import base64
+from loguru import logger
 import asyncio
 from typing import List, Optional, Dict, Union
 from pydantic import BaseModel, Field, ConfigDict
@@ -6,6 +7,9 @@ from Library.config import settings
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
 import os
+os.environ["LANGCHAIN_API_KEY"] = settings.langchain_api_key
+# os.environ['LANGCHAIN_TRACING_V2'] = True
+os.environ['LANGCHAIN_PROJECT'] = settings.langchain_project
 
 class DocumentInfo(BaseModel):
     """
@@ -13,7 +17,8 @@ class DocumentInfo(BaseModel):
     """
     model_config = ConfigDict(extra='forbid')
     
-    full_name: str = Field(description="Full name from the document (combine surname and firstname if separate)")
+    first_name: str = Field(description="First name from the document")
+    last_name: str = Field(description="Last name from the document")
     date_of_birth: str = Field(description="Date of birth in the format shown on document")
     document_type: str = Field(description="Type of document (ID Card/Birth Certificate)")
     identification_number: str = Field(description="Any ID number or document number shown")
@@ -82,7 +87,7 @@ class DocumentOCRProcessor:
             DocumentExtractionResult: Extracted document information
         """
         prompt = f"""
-        Analyze this {document_type} image and extract the required information and return the answer in the language of the document .
+        Analyze this {document_type} image and extract the required information and return the answer in the language of the document.
         Make sure to extract all visible text fields accurately.
         
         IMPORTANT: 
@@ -92,6 +97,7 @@ class DocumentOCRProcessor:
         - Preserve the exact format of dates and numbers
         - For names, combine surname and firstname if they are separate
         - Extract any ID numbers or document numbers shown
+        - Return all extracted information in the specified DocumentInfo structure
         
         Call the extract_document_info function with the extracted information.
         """
@@ -107,19 +113,31 @@ class DocumentOCRProcessor:
         message = HumanMessage(content=message_content)
         
         try:
+            logger.info(f"Starting document extraction for {document_type}")
             doc_info = await asyncio.to_thread(
                 self.llm.invoke,
                 [message]
             )
             
+            if not doc_info:
+                logger.error("LLM returned empty response")
+                return DocumentExtractionResult(
+                    additional_details={"error": "Failed to extract information - empty response"}
+                )
+            
+            logger.info("Successfully extracted document information")
             return DocumentExtractionResult(
                 document_info=doc_info,
                 additional_details={"status": "success"}
             )
             
         except Exception as e:
+            logger.error(f"Document extraction failed: {str(e)}")
             return DocumentExtractionResult(
-                additional_details={"error": str(e)}
+                additional_details={
+                    "error": str(e),
+                    "stage": "document_extraction"
+                }
             )
 
 class MultiDocumentProcessor:
