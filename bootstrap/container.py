@@ -6,6 +6,7 @@ from Customer.services.customer_service import CustomerService
 from Customer.services.verification_service import VerificationService
 from persistence.db.models.base import SessionLocal
 
+
 class Container(containers.DeclarativeContainer):
     """Application IoC container."""
 
@@ -17,16 +18,11 @@ class Container(containers.DeclarativeContainer):
     )
 
     # Repositories
-    customer_repository = providers.Factory(
-        CustomerRepository
-    )
+    customer_repository = providers.Factory(CustomerRepository)
 
     # Services
     customer_service = providers.Factory(
-        CustomerService,
-        customer_repository=customer_repository
-    )   
-        
-    verification_service = providers.Singleton(
-            VerificationService
-        )
+        CustomerService, customer_repository=customer_repository
+    )
+
+    verification_service = providers.Singleton(VerificationService)

@@ -8,17 +8,16 @@ import uvicorn
 import os
 import sys
 
+
 def create_app() -> FastAPI:
-    # Create container instance
     logger.info("Initializing application container...")
     container = Container()
-    
-    # Create FastAPI app
+
     logger.info("Creating FastAPI application...")
     app = FastAPI(
         title="Customer Management API",
         description="API for managing customer information",
-        version="1.0.0"
+        version="1.0.0",
     )
 
     # Configure CORS
@@ -42,24 +41,27 @@ def create_app() -> FastAPI:
     # Include routers
     logger.info("Including API routers...")
     app.include_router(customer_router)
-    
+
     # Store container reference
     app.container = container
-    
+
     logger.info("Application startup complete!")
     return app
 
+
 app = create_app()
+
 
 @app.on_event("startup")
 async def startup():
     logger.info("Running application startup tasks...")
 
+
 @app.on_event("shutdown")
 async def shutdown():
     logger.info("Running application shutdown tasks...")
 
-    
+
 # Main execution
 if __name__ == "__main__":
     uvicorn_config = {
@@ -67,10 +69,10 @@ if __name__ == "__main__":
         "host": "127.0.0.1",
         "port": 8000,
         "log_level": "debug",
-        "loop": 'asyncio',
+        "loop": "asyncio",
     }
-    
+
     if os.getenv("APP_ENV") == "production":
         uvicorn_config["reload"] = True
-    
+
     uvicorn.run(**uvicorn_config)

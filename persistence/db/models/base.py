@@ -6,9 +6,11 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import URL
 from .db_model_base import Base
+
 # Set the event loop policy to WindowsSelectorEventLoopPolicy
 # asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 from persistence.db.configuration.config import get_auth_config
+
 config = get_auth_config()
 
 
@@ -30,16 +32,16 @@ ssl_context.check_hostname = False
 ssl_context.verify_mode = ssl.CERT_NONE
 
 
-
 def create_db_engine():
     # return create_async_engine(
     #     database_connection_string, poolclass=NullPool, echo=True, future=True
     # )
-    return create_async_engine(SQLALCHEMY_DATABASE_URL,
-     echo=True, 
-     future=True,
-     connect_args={"ssl": ssl_context},
-     )
+    return create_async_engine(
+        SQLALCHEMY_DATABASE_URL,
+        echo=True,
+        future=True,
+        connect_args={"ssl": ssl_context},
+    )
 
 
 engine = create_db_engine()
@@ -59,6 +61,8 @@ async def get_db() -> AsyncSession:
 async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+
 """
 synchronous session
 
@@ -77,4 +81,3 @@ def get_db():
          yield session
 
 """
-

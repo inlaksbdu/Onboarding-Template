@@ -39,13 +39,6 @@ class AuthSettings(BaseSettings):
             raise ValueError("Environment file not found")
         return v
 
+
 def get_auth_config() -> AuthSettings:
     return AuthSettings()
-
-
-
-
-
-
-
-

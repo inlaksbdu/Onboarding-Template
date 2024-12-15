@@ -5,7 +5,11 @@ from loguru import logger
 
 from persistence.db.models.base import SessionLocal
 from persistence.db.models.customer import Customer
-from Customer.dto.requests.customer_request import CustomerCreateRequest, CustomerUpdateRequest
+from Customer.dto.requests.customer_request import (
+    CustomerCreateRequest,
+    CustomerUpdateRequest,
+)
+
 
 class CustomerRepository:
     """
@@ -56,7 +60,9 @@ class CustomerRepository:
             logger.error(f"Error getting all customers: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def update_customer(self, customer_id: int, customer_data: dict) -> Optional[Customer]:
+    async def update_customer(
+        self, customer_id: int, customer_data: dict
+    ) -> Optional[Customer]:
         """
         Update an existing customer in the database.
         """

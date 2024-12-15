@@ -4,8 +4,12 @@ from typing import List
 
 from Customer.db.repository.custimer_repository import CustomerRepository
 from persistence.db.models.customer import Customer
-from Customer.dto.requests.customer_request import CustomerCreateRequest, CustomerUpdateRequest
+from Customer.dto.requests.customer_request import (
+    CustomerCreateRequest,
+    CustomerUpdateRequest,
+)
 from Customer.dto.response.customer_response import CustomerResponse
+
 
 class CustomerService:
     """
@@ -18,13 +22,17 @@ class CustomerService:
     ):
         self.customer_repository = customer_repository
 
-    async def create_customer(self, customer_data: CustomerCreateRequest) -> CustomerResponse:
+    async def create_customer(
+        self, customer_data: CustomerCreateRequest
+    ) -> CustomerResponse:
         """
         Create a new customer.
         """
         try:
             new_customer = Customer(**customer_data.dict())
-            created_customer = await self.customer_repository.create_customer(new_customer)
+            created_customer = await self.customer_repository.create_customer(
+                new_customer
+            )
             return CustomerResponse.from_orm(created_customer)
         except Exception as e:
             logger.error(f"Error creating customer: {str(e)}")
@@ -56,13 +64,17 @@ class CustomerService:
             logger.error(f"Error getting all customers: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def update_customer(self, customer_id: int, customer_data: CustomerUpdateRequest) -> CustomerResponse:
+    async def update_customer(
+        self, customer_id: int, customer_data: CustomerUpdateRequest
+    ) -> CustomerResponse:
         """
         Update an existing customer.
         """
         try:
             update_data = customer_data.dict(exclude_unset=True)
-            updated_customer = await self.customer_repository.update_customer(customer_id, update_data)
+            updated_customer = await self.customer_repository.update_customer(
+                customer_id, update_data
+            )
             if not updated_customer:
                 raise HTTPException(status_code=404, detail="Customer not found")
             return CustomerResponse.from_orm(updated_customer)

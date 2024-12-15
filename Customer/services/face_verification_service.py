@@ -4,22 +4,23 @@ from botocore.exceptions import ClientError
 from Library.config import settings
 from loguru import logger
 
+
 class FaceVerificationService:
     def __init__(self):
         """Initialize AWS Rekognition client"""
         logger.info("Initializing FaceVerificationService")
         try:
             self.rekognition = boto3.client(
-                'rekognition',
+                "rekognition",
                 aws_access_key_id=settings.aws_access_key_id,
                 aws_secret_access_key=settings.aws_secret_access_key,
-                region_name=settings.aws_region
+                region_name=settings.aws_region,
             )
             self.s3 = boto3.client(
-                's3',
+                "s3",
                 aws_access_key_id=settings.aws_access_key_id,
                 aws_secret_access_key=settings.aws_secret_access_key,
-                region_name=settings.aws_region
+                region_name=settings.aws_region,
             )
             self.bucket_name = settings.aws_bucket_name
             logger.info("Successfully initialized AWS clients")
@@ -30,11 +31,11 @@ class FaceVerificationService:
     async def upload_to_s3(self, image_bytes: bytes, key: str) -> str:
         """
         Upload image to S3 bucket
-        
+
         Args:
             image_bytes: Image data in bytes
             key: S3 object key (path/filename)
-            
+
         Returns:
             str: S3 URI of uploaded image
         """
@@ -44,7 +45,7 @@ class FaceVerificationService:
                 Bucket=self.bucket_name,
                 Key=key,
                 Body=image_bytes,
-                ContentType='image/jpeg'
+                ContentType="image/jpeg",
             )
             s3_uri = f"s3://{self.bucket_name}/{key}"
             logger.success(f"Successfully uploaded image to {s3_uri}")
@@ -57,10 +58,10 @@ class FaceVerificationService:
     async def verify_face_quality(self, image_bytes: bytes) -> Tuple[bool, Dict]:
         """
         Verify face quality using AWS Rekognition DetectFaces
-        
+
         Args:
             image_bytes: Image data in bytes
-            
+
         Returns:
             Tuple[bool, Dict]: (is_valid, details)
         """
@@ -68,91 +69,95 @@ class FaceVerificationService:
         try:
             # Request specific attributes we want to check
             response = self.rekognition.detect_faces(
-                Image={'Bytes': image_bytes},
+                Image={"Bytes": image_bytes},
                 Attributes=[
-                    'DEFAULT',  # Includes BoundingBox, Confidence, Pose, Quality, and Landmarks
-                    'AGE_RANGE',
-                    'SUNGLASSES',
-                    'EYES_OPEN',
-                    'MOUTH_OPEN',
-                    'FACE_OCCLUDED'
-                ]
+                    "DEFAULT",  # Includes BoundingBox, Confidence, Pose, Quality, and Landmarks
+                    "AGE_RANGE",
+                    "SUNGLASSES",
+                    "EYES_OPEN",
+                    "MOUTH_OPEN",
+                    "FACE_OCCLUDED",
+                ],
             )
 
-            if not response.get('FaceDetails'):
+            if not response.get("FaceDetails"):
                 logger.warning("No face detected in the image")
                 return False, {
                     "error": "No face detected",
-                    "suggestions": ["Please ensure your face is clearly visible in the image"]
+                    "suggestions": [
+                        "Please ensure your face is clearly visible in the image"
+                    ],
                 }
 
             # Get the first (and should be only) face
-            face = response['FaceDetails'][0]
-            
+            face = response["FaceDetails"][0]
+
             # Initialize quality checks dictionary
             quality_checks = {}
             suggestions = []
-            
+
             # 1. Check Face Detection Confidence
-            quality_checks["face_confidence"] = face.get('Confidence', 0) > 90
+            quality_checks["face_confidence"] = face.get("Confidence", 0) > 90
             if not quality_checks["face_confidence"]:
                 suggestions.append("Please provide a clearer photo of your face")
-            
+
             # 2. Age Range Check (store for reference)
-            age_range = face.get('AgeRange', {})
+            age_range = face.get("AgeRange", {})
             quality_checks["age_range"] = {
-                "low": age_range.get('Low', 0),
-                "high": age_range.get('High', 0)
+                "low": age_range.get("Low", 0),
+                "high": age_range.get("High", 0),
             }
-            
+
             # 3. Sunglasses Check
-            sunglasses = face.get('Sunglasses', {})
-            quality_checks["sunglasses"] = not sunglasses.get('Value', False)
+            sunglasses = face.get("Sunglasses", {})
+            quality_checks["sunglasses"] = not sunglasses.get("Value", False)
             if not quality_checks["sunglasses"]:
                 suggestions.append("Please remove sunglasses")
-            
+
             # 4. Eyes Open Check
-            eyes_open = face.get('EyesOpen', {})
-            quality_checks["eyes_open"] = eyes_open.get('Value', True)
+            eyes_open = face.get("EyesOpen", {})
+            quality_checks["eyes_open"] = eyes_open.get("Value", True)
             if not quality_checks["eyes_open"]:
                 suggestions.append("Please open your eyes fully")
-            
+
             # 5. Mouth Open Check
-            mouth_open = face.get('MouthOpen', {})
-            quality_checks["mouth_closed"] = not mouth_open.get('Value', False)
+            mouth_open = face.get("MouthOpen", {})
+            quality_checks["mouth_closed"] = not mouth_open.get("Value", False)
             if not quality_checks["mouth_closed"]:
                 suggestions.append("Please close your mouth")
-            
+
             # 6. Face Occlusion Check
-            face_occluded = face.get('FaceOccluded', {})
-            quality_checks["face_clear"] = not face_occluded.get('Value', False)
+            face_occluded = face.get("FaceOccluded", {})
+            quality_checks["face_clear"] = not face_occluded.get("Value", False)
             if not quality_checks["face_clear"]:
                 suggestions.append("Please remove any objects blocking your face")
-            
+
             # 7. Image Quality Checks
-            quality = face.get('Quality', {})
-            brightness = quality.get('Brightness', 0)
-            sharpness = quality.get('Sharpness', 0)
-            
+            quality = face.get("Quality", {})
+            brightness = quality.get("Brightness", 0)
+            sharpness = quality.get("Sharpness", 0)
+
             quality_checks["brightness"] = brightness > 50
             quality_checks["sharpness"] = sharpness > 50
-            
+
             if not quality_checks["brightness"]:
                 suggestions.append("Please take the photo in better lighting")
             if not quality_checks["sharpness"]:
                 suggestions.append("Please ensure the image is clear and not blurry")
-            
+
             # 8. Face Pose Check (ensure face is looking straight ahead)
-            pose = face.get('Pose', {})
+            pose = face.get("Pose", {})
             pose_threshold = 20  # degrees
-            quality_checks["pose_valid"] = all([
-                abs(pose.get('Pitch', 0)) < pose_threshold,
-                abs(pose.get('Roll', 0)) < pose_threshold,
-                abs(pose.get('Yaw', 0)) < pose_threshold
-            ])
+            quality_checks["pose_valid"] = all(
+                [
+                    abs(pose.get("Pitch", 0)) < pose_threshold,
+                    abs(pose.get("Roll", 0)) < pose_threshold,
+                    abs(pose.get("Yaw", 0)) < pose_threshold,
+                ]
+            )
             if not quality_checks["pose_valid"]:
                 suggestions.append("Please look straight at the camera")
-            
+
             # Overall validation
             required_checks = [
                 "face_confidence",
@@ -162,52 +167,56 @@ class FaceVerificationService:
                 "face_clear",
                 "brightness",
                 "sharpness",
-                "pose_valid"
+                "pose_valid",
             ]
-            
-            is_valid = all(quality_checks.get(check, False) for check in required_checks)
-            
+
+            is_valid = all(
+                quality_checks.get(check, False) for check in required_checks
+            )
+
             logger.info(f"Face quality verification complete: is_valid={is_valid}")
             logger.debug(f"Quality check details: {quality_checks}")
-            
+
             return is_valid, {
                 "checks": quality_checks,
                 "suggestions": suggestions,
-                "age_range": quality_checks["age_range"]
+                "age_range": quality_checks["age_range"],
             }
-            
+
         except ClientError as e:
-            error_code = e.response['Error']['Code']
+            error_code = e.response["Error"]["Code"]
             error_msg = str(e)
             logger.error(f"AWS Rekognition DetectFaces failed: {error_msg}")
-            
+
             error_mapping = {
-                'InvalidImageFormatException': {
+                "InvalidImageFormatException": {
                     "error": "Invalid image format",
-                    "suggestions": ["Please provide a valid JPEG or PNG image"]
+                    "suggestions": ["Please provide a valid JPEG or PNG image"],
                 },
-                'ImageTooLargeException': {
+                "ImageTooLargeException": {
                     "error": "Image too large",
-                    "suggestions": ["Please provide an image smaller than 5MB"]
+                    "suggestions": ["Please provide an image smaller than 5MB"],
                 },
-                'InvalidParameterException': {
+                "InvalidParameterException": {
                     "error": "Invalid image",
-                    "suggestions": ["Please provide a clear photo with your face visible"]
+                    "suggestions": [
+                        "Please provide a clear photo with your face visible"
+                    ],
                 },
-                'AccessDeniedException': {
+                "AccessDeniedException": {
                     "error": "Access denied",
-                    "suggestions": ["Please check your AWS credentials"]
+                    "suggestions": ["Please check your AWS credentials"],
                 },
-                'ProvisionedThroughputExceededException': {
+                "ProvisionedThroughputExceededException": {
                     "error": "Too many requests",
-                    "suggestions": ["Please try again in a few moments"]
+                    "suggestions": ["Please try again in a few moments"],
                 },
-                'ThrottlingException': {
+                "ThrottlingException": {
                     "error": "Service throttled",
-                    "suggestions": ["Please try again in a few moments"]
-                }
+                    "suggestions": ["Please try again in a few moments"],
+                },
             }
-            
+
             if error_code in error_mapping:
                 return False, error_mapping[error_code]
             else:
@@ -217,16 +226,16 @@ class FaceVerificationService:
         self,
         source_image_key: str,
         target_image_key: str,
-        similarity_threshold: float = 90
+        similarity_threshold: float = 90,
     ) -> Tuple[bool, float]:
         """
         Compare faces between source (ID card) and target (selfie) images
-        
+
         Args:
             source_image_key: S3 key for source image (ID card)
             target_image_key: S3 key for target image (selfie)
             similarity_threshold: Minimum similarity threshold (0-100)
-            
+
         Returns:
             Tuple[bool, float]: (match_found, similarity_score)
         """
@@ -234,52 +243,52 @@ class FaceVerificationService:
             f"Comparing faces: source={source_image_key}, target={target_image_key}, "
             f"threshold={similarity_threshold}"
         )
-        
+
         try:
             response = self.rekognition.compare_faces(
                 SourceImage={
-                    'S3Object': {
-                        'Bucket': self.bucket_name,
-                        'Name': source_image_key
-                    }
+                    "S3Object": {"Bucket": self.bucket_name, "Name": source_image_key}
                 },
                 TargetImage={
-                    'S3Object': {
-                        'Bucket': self.bucket_name,
-                        'Name': target_image_key
-                    }
+                    "S3Object": {"Bucket": self.bucket_name, "Name": target_image_key}
                 },
                 SimilarityThreshold=similarity_threshold,
-                QualityFilter='HIGH'  # Ensure high-quality face detection
+                QualityFilter="HIGH",  # Ensure high-quality face detection
             )
-            
-            if not response.get('FaceMatches'):
+
+            if not response.get("FaceMatches"):
                 logger.warning("No matching faces found")
                 return False, 0.0
-                
+
             # Get the highest similarity score
-            best_match = max(response['FaceMatches'], key=lambda x: x['Similarity'])
-            similarity = best_match['Similarity']
-            
+            best_match = max(response["FaceMatches"], key=lambda x: x["Similarity"])
+            similarity = best_match["Similarity"]
+
             match_found = similarity >= similarity_threshold
-            logger.info(f"Face comparison complete: match_found={match_found}, similarity={similarity:.2f}%")
-            
+            logger.info(
+                f"Face comparison complete: match_found={match_found}, similarity={similarity:.2f}%"
+            )
+
             return match_found, similarity
-            
+
         except ClientError as e:
-            error_code = e.response['Error']['Code']
+            error_code = e.response["Error"]["Code"]
             error_msg = str(e)
             logger.error(f"AWS Rekognition CompareFaces failed: {error_msg}")
-            
-            if error_code == 'InvalidParameterException':
-                logger.warning("Face comparison failed due to invalid parameters - likely no face detected")
+
+            if error_code == "InvalidParameterException":
+                logger.warning(
+                    "Face comparison failed due to invalid parameters - likely no face detected"
+                )
                 return False, 0.0
-            elif error_code == 'InvalidS3ObjectException':
+            elif error_code == "InvalidS3ObjectException":
                 raise Exception("One or both images not found in S3")
-            elif error_code == 'ImageTooLargeException':
+            elif error_code == "ImageTooLargeException":
                 raise Exception("One or both images exceed the size limit (5MB)")
-            elif error_code == 'InvalidImageFormatException':
-                raise Exception("One or both images are in an invalid format (must be JPG or PNG)")
+            elif error_code == "InvalidImageFormatException":
+                raise Exception(
+                    "One or both images are in an invalid format (must be JPG or PNG)"
+                )
             else:
                 raise Exception(f"Face comparison failed: {error_msg}")
 
@@ -287,27 +296,35 @@ class FaceVerificationService:
         """Generate user-friendly suggestions based on failed checks"""
         logger.info("Generating suggestions")
         suggestions = []
-        
+
         if not checks["is_face_detected"]:
-            suggestions.append("Please ensure your face is clearly visible in the image")
+            suggestions.append(
+                "Please ensure your face is clearly visible in the image"
+            )
         if not checks["is_human"]:
             suggestions.append("Please provide a clear photo of a human face")
         if checks["face_occluded"]:
-            suggestions.append("Please remove any objects blocking your face (hands, mask, etc.)")
+            suggestions.append(
+                "Please remove any objects blocking your face (hands, mask, etc.)"
+            )
         if not checks["pose_valid"]:
-            suggestions.append("Please look straight at the camera without tilting or turning your head")
+            suggestions.append(
+                "Please look straight at the camera without tilting or turning your head"
+            )
         if not checks["eyes_open"]:
             suggestions.append("Please open your eyes for the photo")
         if not checks["quality_brightness"]:
             suggestions.append("Please take the photo in better lighting")
         if not checks["quality_sharpness"]:
-            suggestions.append("Please hold the camera steady and ensure the image is clear")
+            suggestions.append(
+                "Please hold the camera steady and ensure the image is clear"
+            )
         if not checks["sunglasses"]:
             suggestions.append("Please remove sunglasses or any eye accessories")
         if checks["mouth_open"]:
             suggestions.append("Please close your mouth for the photo")
         if not checks["multiple_faces"]:
             suggestions.append("Please ensure only your face is visible in the photo")
-            
+
         logger.info(f"Generated {len(suggestions)} suggestions")
         return suggestions

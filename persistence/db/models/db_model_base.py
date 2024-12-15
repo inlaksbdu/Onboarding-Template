@@ -36,7 +36,6 @@ class TimestampMixin:
         return f"<{self.__class__.__name__}({self.__dict__})>"
 
 
-
 # from datetime import datetime
 # from typing import Optional
 # from sqlalchemy.orm import declarative_base
