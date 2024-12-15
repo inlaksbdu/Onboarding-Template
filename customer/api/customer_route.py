@@ -14,7 +14,6 @@ import uuid
 from loguru import logger
 from datetime import datetime
 
-import orjson
 
 from bootstrap.container import Container
 from customer.services.customer_service import CustomerService
@@ -24,9 +23,9 @@ from customer.dto.requests.customer_request import (
 )
 from customer.dto.response.customer_response import CustomerResponse
 
-router = APIRouter(prefix="/customer", tags=["Customer Management"])
+router = APIRouter(prefix="/customer", tags=["Customer Onboarding"])
 
-# Store registration sessions in memory (in production, use Redis/DB)
+# TODO Use Redis or DB to store registration sessions
 registration_sessions = {}
 
 
@@ -74,7 +73,7 @@ async def extract_document_info(
         images = [await doc.read() for doc in (front, back) if doc]
         result = await verification_service.verify_document(document_images=images)
 
-        if not result.success:
+        if not result.success or not result.details:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail=result.message
             )
@@ -120,40 +119,26 @@ async def verify_face(
     Verify user's face against ID photo
     Assumes frontend has performed liveness check
     """
-    logger.info(f"Starting face verification for session: {session_id}")
     try:
-        if session_id not in registration_sessions:
+        if (session := registration_sessions.get(session_id)) is None:
             logger.error(f"Invalid session ID: {session_id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Invalid session ID"
             )
 
-        session = registration_sessions[session_id]
-        if session["status"] != "documents_verified":
-            logger.error(
-                f"Invalid session status for face verification: {session['status']}"
-            )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Documents must be verified before face verification",
-            )
-
-        # Process selfie
-        logger.info("Processing selfie image")
         selfie_bytes = await selfie.read()
-        face_result = await verification_service.verify_biometrics(
+        face_result = await verification_service.compare_faces(
             selfie_bytes,
-            session["id_photo_path"],  # Using ID photo path for comparison
+            session["id_photo_path"],
         )
 
-        if not face_result.success:
+        if not face_result.success or face_result.details is None:
             logger.error(f"Face verification failed: {face_result.message}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Face verification failed: {face_result.message}",
             )
 
-        # Update session
         session["status"] = "face_verified"
         session["selfie_path"] = face_result.details["selfie_path"]
         session["face_match_score"] = face_result.details["face_match_score"]
@@ -161,7 +146,6 @@ async def verify_face(
         logger.success(f"Face verification completed for session: {session_id}")
         return {
             "status": "success",
-            "message": "Face verification successful",
             "match_score": face_result.details["face_match_score"],
         }
 

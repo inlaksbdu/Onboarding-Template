@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, ConfigDict
 from library.config import settings
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
+from deprecated import deprecated
 
 
 class DocumentInfo(BaseModel):
@@ -77,6 +78,7 @@ class DocumentExtractionResult(BaseModel):
     )
 
 
+@deprecated(version="0.1.0", reason="Use DocumentOCRProcessor from `ocr/extraction`")
 class DocumentOCRProcessor:
     """
     Async Document OCR Processor using Langchain and Claude
@@ -145,6 +147,7 @@ class DocumentOCRProcessor:
             raise e
 
 
+@deprecated(version="0.1.0", reason="No longer useful")
 class MultiDocumentProcessor:
     """
     Process multiple documents simultaneously
@@ -174,7 +177,7 @@ class MultiDocumentProcessor:
             for img, doc_type in zip(images, document_types)
         ]
 
-        return await asyncio.gather(*tasks)
+        return await asyncio.gather(*tasks)  # type: ignore
 
 
 def encode_image_to_base64(file_path: Union[str, bytes]) -> str:

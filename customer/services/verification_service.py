@@ -1,15 +1,10 @@
 import asyncio
 from typing import Optional, Dict, List
-import os
-import io
 import uuid
 from datetime import datetime
-import boto3
-from fastapi import HTTPException
 from pydantic import BaseModel
 from loguru import logger
 
-from library.utils import DocumentExtractionResult
 from ocr.extractor import DocumentOCRProcessor
 from customer.services.face_verification_service import FaceVerificationService
 from customer.dto.requests.customer_request import CustomerCreateRequest
@@ -70,8 +65,8 @@ class VerificationService:
                 success=False, stage="document_verification", message=error_msg
             )
 
-    async def verify_biometrics(
-        self, selfie_image: bytes, id_photo_path: str
+    async def compare_faces(
+        self, selfie_image: bytes, id_photo_path: str, threshold: float = 90
     ) -> VerificationResult:
         """
         Verify user's biometric information
@@ -91,10 +86,12 @@ class VerificationService:
             # Compare faces
             logger.info("Comparing faces")
             match_found, similarity = await self.face_service.compare_faces(
-                source_image_key=id_photo_path, target_image_key=s3_key
+                source_image_key=id_photo_path,
+                target_image_key=s3_key,
+                similarity_threshold=threshold,
             )
 
-            if not match_found:
+            if not match_found or similarity < threshold:
                 logger.warning(
                     f"Face comparison failed with similarity score: {similarity}"
                 )
