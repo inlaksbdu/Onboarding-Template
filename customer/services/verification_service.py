@@ -1,3 +1,4 @@
+import asyncio
 from typing import Optional, Dict, List
 import os
 import io
@@ -8,9 +9,10 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 from loguru import logger
 
-from Library.utils import DocumentOCRProcessor, DocumentExtractionResult
-from Customer.services.face_verification_service import FaceVerificationService
-from Customer.dto.requests.customer_request import CustomerCreateRequest
+from library.utils import DocumentExtractionResult
+from ocr.extractor import DocumentOCRProcessor
+from customer.services.face_verification_service import FaceVerificationService
+from customer.dto.requests.customer_request import CustomerCreateRequest
 from persistence.db.models.customer import Customer
 
 
@@ -28,40 +30,27 @@ class BiometricVerificationResult(BaseModel):
 
 
 class VerificationService:
-    def __init__(self):
-        logger.info("Initializing VerificationService")
-        self.ocr_processor = DocumentOCRProcessor()
-        self.face_service = FaceVerificationService()
-        logger.info("VerificationService initialized successfully")
+    def __init__(
+        self, ocr_processor: DocumentOCRProcessor, face_service: FaceVerificationService
+    ):
+        self.ocr_processor = ocr_processor
+        self.face_service = face_service
 
-    async def verify_document(self, document_image: bytes) -> VerificationResult:
+    async def verify_document(self, document_images: List) -> VerificationResult:
         """
         Process and verify uploaded ID document
         - Extracts information using Claude OCR
         - Stores document in S3
         """
-        logger.info("Starting document verification process")
         try:
-            # Extract information using Claude
-            logger.info("Extracting information from document using OCR")
-            doc_result = await self.ocr_processor.process_document(document_image)
+            doc_result = await self.ocr_processor.process_images(document_images)
 
-            if not doc_result.document_info:
-                logger.warning("Failed to extract information from document")
-                return VerificationResult(
-                    success=False,
-                    stage="document_verification",
-                    message="Failed to extract information from document",
+            s3_paths = await asyncio.gather(
+                *(
+                    self.face_service.upload_to_s3(document_image)
+                    for document_image in document_images
                 )
-
-            # Generate unique ID for document storage
-            doc_id = str(uuid.uuid4())
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-            # Store document in S3
-            s3_key = f"documents/{doc_id}_{timestamp}.jpg"
-            logger.info(f"Storing document in S3 with key: {s3_key}")
-            s3_path = await self.face_service.upload_to_s3(document_image, s3_key)
+            )
 
             logger.success("Document verification completed successfully")
             return VerificationResult(
@@ -69,8 +58,8 @@ class VerificationService:
                 stage="document_verification",
                 message="Document processed successfully",
                 details={
-                    "extracted_info": doc_result.document_info.dict(),
-                    "image_path": s3_key,
+                    "extracted_info": doc_result.model_dump(),
+                    "images_path": s3_paths,
                 },
             )
 

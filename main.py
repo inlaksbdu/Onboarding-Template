@@ -1,5 +1,5 @@
 from bootstrap.container import Container
-from Customer.api.customer_route import router as customer_router
+from customer.api.customer_route import router as customer_router
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
@@ -34,7 +34,7 @@ def create_app() -> FastAPI:
     logger.info("Wiring dependency container...")
     container.wire(
         modules=[
-            "Customer.api.customer_route"  # Updated path
+            "customer.api.customer_route"  # Updated path
         ]
     )
 

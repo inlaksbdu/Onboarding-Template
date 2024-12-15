@@ -1,7 +1,7 @@
 from loguru import logger
 from datetime import timedelta, datetime, UTC
 import jwt
-from Library.config import settings
+from library.config import settings
 from uuid import uuid4
 
 

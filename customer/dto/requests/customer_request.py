@@ -3,9 +3,9 @@ from typing import Optional
 import pycountry
 from pydantic import EmailStr, constr, Field, field_validator
 from typing import Optional, List
-from Customer.dto.rwmodel import RWModel
-from Customer.dto.validators.validate_password import validate_password
-from Customer.dto.validators.validate_phone import validate_phone
+from customer.dto.rwmodel import RWModel
+from customer.dto.validators.validate_password import validate_password
+from customer.dto.validators.validate_phone import validate_phone
 
 from pydantic import BaseModel, EmailStr, Field
 

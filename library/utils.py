@@ -3,7 +3,7 @@ from loguru import logger
 import asyncio
 from typing import List, Optional, Dict, Union
 from pydantic import BaseModel, Field, ConfigDict
-from Library.config import settings
+from library.config import settings
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
 
@@ -21,9 +21,7 @@ class DocumentInfo(BaseModel):
     document_type: str = Field(
         description="Type of document (ID Card/Birth Certificate)"
     )
-    identification_number: str = Field(
-        description="ID number or document number"
-    )
+    identification_number: str = Field(description="ID number or document number")
     nationality: Optional[str] = Field(
         default=None, description="Nationality of the individual"
     )
@@ -64,7 +62,6 @@ class DocumentInfo(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-
 class DocumentExtractionResult(BaseModel):
     """
     Final result model that includes both extracted info and any additional details
@@ -103,7 +100,7 @@ class DocumentOCRProcessor:
 
     async def process_document(
         self, image_base64: str, document_type: str = "ID Card"
-    ) -> BaseModel|Dict:
+    ) -> BaseModel | Dict:
         """
         Async method to process a single document image
 

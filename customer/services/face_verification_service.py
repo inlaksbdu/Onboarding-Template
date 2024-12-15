@@ -1,14 +1,15 @@
+from datetime import datetime
+import uuid
 import boto3
 from typing import Dict, Optional, Tuple
 from botocore.exceptions import ClientError
-from Library.config import settings
+from library.config import settings
 from loguru import logger
 
 
 class FaceVerificationService:
     def __init__(self):
         """Initialize AWS Rekognition client"""
-        logger.info("Initializing FaceVerificationService")
         try:
             self.rekognition = boto3.client(
                 "rekognition",
@@ -23,12 +24,18 @@ class FaceVerificationService:
                 region_name=settings.aws_region,
             )
             self.bucket_name = settings.aws_bucket_name
-            logger.info("Successfully initialized AWS clients")
         except Exception as e:
             logger.error(f"Failed to initialize AWS clients: {str(e)}")
             raise
 
-    async def upload_to_s3(self, image_bytes: bytes, key: str) -> str:
+    @staticmethod
+    def generate_doc_id() -> str:
+        doc_id = str(uuid.uuid4())
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        s3_key = f"documents/{doc_id}_{timestamp}.jpg"
+        return s3_key
+
+    async def upload_to_s3(self, image_bytes: bytes, key: str | None = None) -> str:
         """
         Upload image to S3 bucket
 
@@ -39,7 +46,7 @@ class FaceVerificationService:
         Returns:
             str: S3 URI of uploaded image
         """
-        logger.info(f"Uploading image to S3 with key: {key}")
+        key = key or self.generate_doc_id()
         try:
             self.s3.put_object(
                 Bucket=self.bucket_name,
@@ -48,8 +55,7 @@ class FaceVerificationService:
                 ContentType="image/jpeg",
             )
             s3_uri = f"s3://{self.bucket_name}/{key}"
-            logger.success(f"Successfully uploaded image to {s3_uri}")
-            return s3_uri
+            return key
         except ClientError as e:
             error_msg = f"Failed to upload image to S3: {str(e)}"
             logger.error(error_msg)

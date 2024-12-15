@@ -7,27 +7,22 @@ from fastapi import (
     BackgroundTasks,
     Depends,
 )
-from typing import List, Optional, Dict
+from fastapi.responses import ORJSONResponse
+from typing import Annotated, Optional, Dict
 from dependency_injector.wiring import inject, Provide
 import uuid
-import logging
 from loguru import logger
 from datetime import datetime
 
-from Library.utils import (
-    MultiDocumentProcessor,
-    encode_image_to_base64,
-    DocumentExtractionResult,
-)
+import orjson
+
 from bootstrap.container import Container
-from Customer.services.customer_service import CustomerService
-from Customer.services.verification_service import VerificationService
-from Customer.dto.requests.customer_request import (
+from customer.services.customer_service import CustomerService
+from customer.services.verification_service import VerificationService
+from customer.dto.requests.customer_request import (
     CustomerCreateRequest,
-    CustomerUpdateRequest,
 )
-from Customer.dto.response.customer_response import CustomerResponse
-from Customer.services.face_verification_service import FaceVerificationService
+from customer.dto.response.customer_response import CustomerResponse
 
 router = APIRouter(prefix="/customer", tags=["Customer Management"])
 
@@ -36,17 +31,20 @@ registration_sessions = {}
 
 
 @router.post(
-    "/extract-documents",
-    response_model=Dict,
+    "/card-ocr",
+    status_code=status.HTTP_200_OK,
+    response_class=ORJSONResponse,
     summary="Extract information from ID cards and initiate registration",
     description="Upload ID documents and start the registration process",
 )
 @inject
 async def extract_document_info(
-    documents: List[UploadFile] = File(
-        ..., description="1-2 document images to process"
+    front: UploadFile = File(
+        ..., description="1-2 document images to process", media_type="image/*"
     ),
-    document_types: Optional[List[str]] = None,
+    back: Annotated[UploadFile, Optional] = File(
+        None, description="Optional second document image", media_type="image/*"
+    ),
     verification_service: VerificationService = Depends(
         Provide[Container.verification_service]
     ),
@@ -57,113 +55,49 @@ async def extract_document_info(
     - Stores documents in S3
     - Creates registration session
     """
-    logger.info("Starting document extraction process")
 
-    # Validate file inputs
-    if len(documents) > 2:
-        logger.error("Maximum 2 documents allowed")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Maximum 2 documents allowed",
-        )
-
-    # Validate file types
     allowed_types = {"image/jpeg", "image/png", "image/gif"}
-    for file in documents:
-        if file.content_type not in allowed_types:
-            logger.error(f"Unsupported file type: {file.content_type}")
+    not_img = next(
+        (
+            file
+            for file in (front, back)
+            if (not file is None) and (file.content_type not in allowed_types)
+        ),
+        None,
+    )
+    if not_img:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=f"Only image files are allowed. Invalid file: {not_img.filename}",
+        )
+    try:
+        images = [await doc.read() for doc in (front, back) if doc]
+        result = await verification_service.verify_document(document_images=images)
+
+        if not result.success:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unsupported file type: {file.content_type}",
+                status_code=status.HTTP_400_BAD_REQUEST, detail=result.message
             )
 
-    try:
-        # Initialize services
-        face_service = FaceVerificationService()
-
-        # Process first document (ID Card)
-        logger.info("Processing ID card")
-        id_content = await documents[0].read()
-
-        # Store ID card in S3
-        id_key = f"documents/id_card_{uuid.uuid4()}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
-        id_path = await face_service.upload_to_s3(id_content, id_key)
-
-        # Convert to base64 for OCR
-        id_base64 = encode_image_to_base64(id_content)
-
-        # Process documents
-        processor = MultiDocumentProcessor()
-        image_bases = [id_base64]
-        doc_types = ["ID Card"]
-
-        # Handle second document if provided
-        birth_cert_path = None
-        if len(documents) > 1:
-            logger.info("Processing birth certificate")
-            birth_content = await documents[1].read()
-
-            # Store birth certificate in S3
-            birth_key = f"documents/birth_cert_{uuid.uuid4()}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
-            birth_cert_path = await face_service.upload_to_s3(birth_content, birth_key)
-
-            # Add to processing queue
-            birth_base64 = encode_image_to_base64(birth_content)
-            image_bases.append(birth_base64)
-            doc_types.append("Birth Certificate")
-
-        # Extract information from all documents
-        results = await processor.process_documents(
-            images=image_bases, document_types=doc_types
-        )
-
-        # Check for extraction errors
-        for idx, result in enumerate(results):
-            if not result.document_info:
-                error_msg = result.additional_details.get("error", "Unknown error")
-                logger.error(f"Document {idx + 1} extraction failed: {error_msg}")
-                if idx == 0:  # If primary document (ID card) failed
-                    raise HTTPException(
-                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                        detail=f"Failed to extract information from ID card: {error_msg}",
-                    )
-
-        # Create registration session
         session_id = str(uuid.uuid4())
-        logger.info(f"Creating registration session: {session_id}")
 
-        # Store session data
         registration_sessions[session_id] = {
-            "id_card_info": results[0].document_info.dict()
-            if results[0].document_info
-            else {},
-            "id_photo_path": id_key,  # S3 key for face comparison
+            "id_card_info": result.details,
+            "id_photo_path": result.details["images_path"][
+                0
+            ],  # S3 key for face comparison
             "status": "documents_verified",
             "created_at": datetime.now().isoformat(),
         }
 
-        # Add birth certificate info if provided
-        if birth_cert_path and len(results) > 1:
-            registration_sessions[session_id]["birth_cert_info"] = (
-                results[1].document_info.dict() if results[1].document_info else {}
-            )
-            registration_sessions[session_id]["birth_cert_path"] = birth_key
-
-        logger.success(f"Document extraction completed for session: {session_id}")
-        return {
-            "session_id": session_id,
-            "status": "success",
-            "extracted_info": {
-                "id_card": results[0].document_info.dict()
-                if results[0].document_info
-                else {},
-                "birth_certificate": (
-                    results[1].document_info.dict()
-                    if len(results) > 1 and results[1].document_info
-                    else None
-                ),
+        return ORJSONResponse(
+            status_code=status.HTTP_201_CREATED,
+            content={
+                "status": "success",
+                "data": result.details,
+                "session_id": session_id,
             },
-        }
+        )
 
     except Exception as e:
         logger.error(f"Document extraction failed: {str(e)}")
