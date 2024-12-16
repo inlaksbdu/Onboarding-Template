@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 import os
 from loguru import logger
 
@@ -33,11 +33,11 @@ ENV_FILE = get_env_file()
 
 class BaseConfig(BaseSettings):
     environment: str = "development"
-    database_host: str
-    database_username: str
-    database_password: str
-    database_name: str
-    database_port: str
+    db_host: str
+    db_username: str
+    db_password: str
+    db_name: str
+    db_port: str
     # redis_url: str
     aws_access_key_id: str
     aws_secret_access_key: str
@@ -57,10 +57,18 @@ class BaseConfig(BaseSettings):
     # ngrok_url: str
     backend_url: str
 
-    class Config:
-        env_file = ENV_FILE
-        extra = "ignore"
-        case_insensitive = True
+    model_config = SettingsConfigDict(
+        **{
+            "case_sensitive": False,
+            "extra": "ignore",
+            "env_prefix": ".env",
+            "env_file_encoding": "utf-8",
+        }
+    )
+
+    @property
+    def db_url(self):
+        return f"postgresql+asyncpg://{self.db_username}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
 
 
-settings = BaseConfig()
+settings = BaseConfig()  # type: ignore

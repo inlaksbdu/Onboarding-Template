@@ -10,17 +10,13 @@ import sys
 
 
 def create_app() -> FastAPI:
-    logger.info("Initializing application container...")
     container = Container()
 
-    logger.info("Creating FastAPI application...")
     app = FastAPI(
-        title="Customer Management API",
-        description="API for managing customer information",
+        title="Customer Onboarding API",
         version="1.0.0",
     )
 
-    # Configure CORS
     logger.info("Configuring CORS...")
     app.add_middleware(
         CORSMiddleware,

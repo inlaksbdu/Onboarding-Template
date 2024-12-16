@@ -7,28 +7,20 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
-import sys
-import os
 
-# import sys
-# import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
+from db.models.base import Base
+from db.models.customer import Customer
+from db.models.user import User
+from db.models.refresh import RefreshToken
 
-# sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# sys.path.append(os.getcwd())
-
-from persistence.db.models.base import Base, SQLALCHEMY_DATABASE_URL
-
-from persistence.db.models.customer import Customer
+from library.config import settings
 
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
 
-config.set_main_option(
-    "sqlalchemy.url", SQLALCHEMY_DATABASE_URL.render_as_string(hide_password=False)
-)
+config.set_main_option("sqlalchemy.url", settings.db_url)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

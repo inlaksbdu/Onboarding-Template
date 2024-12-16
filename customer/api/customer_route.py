@@ -114,7 +114,7 @@ async def verify_face(
     verification_service: VerificationService = Depends(
         Provide[Container.verification_service]
     ),
-) -> Dict:
+) -> ORJSONResponse:
     """
     Verify user's face against ID photo
     Assumes frontend has performed liveness check
@@ -144,10 +144,13 @@ async def verify_face(
         session["face_match_score"] = face_result.details["face_match_score"]
 
         logger.success(f"Face verification completed for session: {session_id}")
-        return {
-            "status": "success",
-            "match_score": face_result.details["face_match_score"],
-        }
+        return ORJSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "status": "success",
+                "match_score": face_result.details["face_match_score"],
+            },
+        )
 
     except HTTPException:
         raise
