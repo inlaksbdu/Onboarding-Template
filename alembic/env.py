@@ -9,7 +9,8 @@ from alembic import context
 
 
 from db.models.base import Base
-from db.models.customer import Customer
+
+# from db.models.customer import Customer
 from db.models.user import User
 from db.models.refresh import RefreshToken
 

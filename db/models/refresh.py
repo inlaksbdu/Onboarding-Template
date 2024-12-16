@@ -10,9 +10,9 @@ if TYPE_CHECKING:
 
 
 class RefreshToken(Base):
-    __tablename__ = "refresh_tokens"  # type: ignore
+    __tablename__ = "refresh_tokens"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True)
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     token: Mapped[str] = mapped_column(String(255), unique=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))

@@ -21,10 +21,6 @@ naming_convention = {
 class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=naming_convention)
 
-    @declared_attr  # type: ignore[misc]
-    def __tablename__(cls) -> str:
-        return cls.__name__.lower()
-
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=curr_timestamp, nullable=False
     )

@@ -1,7 +1,5 @@
 import uuid
-from datetime import date
-from sqlalchemy import Column, String, Date, Enum, ForeignKey
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, String, Date
 from sqlalchemy.dialects.postgresql import UUID
 from db.models.db_model_base import Base, TimestampMixin
 

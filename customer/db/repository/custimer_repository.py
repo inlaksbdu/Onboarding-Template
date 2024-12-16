@@ -3,8 +3,8 @@ from sqlalchemy import select, update, delete
 from fastapi import HTTPException
 from loguru import logger
 
-from persistence.db.models.base import SessionLocal
-from persistence.db.models.customer import Customer
+# from persistence.db.models.base import SessionLocal
+# from persistence.db.models.customer import Customer
 from customer.dto.requests.customer_request import (
     CustomerCreateRequest,
     CustomerUpdateRequest,

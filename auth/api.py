@@ -1,33 +1,43 @@
+from datetime import datetime, UTC
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Annotated
+from db.models.refresh import RefreshToken
 from db.session import Database
 from .security import AuthService
-from .schemas import Token, TokenPayload, UserCreate, UserResponse
+from .dto import Token, TokenPayload, UserCreate, UserResponse
 from db.models.user import User
 
 from library.config import settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-db_obj = Database(settings.db_url)
+db_obj = Database(settings.db_url, echo=settings.db_echo)
+auth_service = AuthService()
+oauth_2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
 
 
 @router.post("/register", response_model=UserResponse)
 async def register_user(
     user_model: UserCreate,
     session: Annotated[AsyncSession, Depends(db_obj.session)],
-    auth_service: Annotated[AuthService, Depends()],
 ):
-    user = await session.get(User, user_model.email)
+    user = (
+        await session.execute(select(User).where(User.email == user_model.email))
+    ).scalar_one_or_none()
     if user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User already registered",
         )
 
-    user = User(**user_model.model_dump())
+    user = User(
+        email=user_model.email,
+        role=user_model.role,
+        hashed_password=auth_service.get_password_hash(user_model.password),
+    )
     user = await auth_service.create_new_user(session, user)
 
     return user
@@ -35,9 +45,8 @@ async def register_user(
 
 @router.post("/token", response_model=Token)
 async def login(
-    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
-    session: Annotated[AsyncSession, Depends(db_obj.session)],
-    auth_service: Annotated[AuthService, Depends()],
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    session: AsyncSession = Depends(db_obj.session),
 ):
     user = await auth_service.authenticate_user(
         session, form_data.username, form_data.password
@@ -58,14 +67,12 @@ async def login(
 
 @router.post("/refresh", response_model=Token)
 async def refresh_token(
-    payload: TokenPayload,
-    session: Annotated[AsyncSession, Depends(db_obj.session)],
-    auth_service: Annotated[AuthService, Depends()],
+    payload: TokenPayload, session: Annotated[AsyncSession, Depends(db_obj.session)]
 ):
     query = select(RefreshToken).where(
         RefreshToken.token == payload.refresh_token,
         RefreshToken.is_revoked == False,
-        RefreshToken.expires_at > datetime.utcnow(),
+        RefreshToken.expires_at > datetime.now(UTC),
     )
     result = await session.execute(query)
     refresh_token = result.scalar_one_or_none()

@@ -7,7 +7,6 @@ from customer.services.customer_service import CustomerService
 from customer.services.verification_service import VerificationService
 from customer.services.face_verification_service import FaceVerificationService
 from ocr.extractor import DocumentOCRProcessor
-from persistence.db.models.base import SessionLocal
 
 
 class Container(containers.DeclarativeContainer):

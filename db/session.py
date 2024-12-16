@@ -17,7 +17,7 @@ class Database:
             self.engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
         )
 
-    @asynccontextmanager
+    # @asynccontextmanager
     async def session(self) -> AsyncGenerator[AsyncSession, None]:
         async with self.async_session() as session:
             try:
