@@ -1,34 +1,5 @@
-from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
-import os
-from loguru import logger
-
-
-def get_env_file():
-    ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
-    logger.info(f"Current environment: {ENVIRONMENT}")
-
-    if ENVIRONMENT == "production":
-        ENV_FILE = ".env"
-    elif ENVIRONMENT == "development":
-        ENV_FILE = ".env.dev"
-    else:
-        ENV_FILE = f".env.{ENVIRONMENT}" if ENVIRONMENT else ".env"
-
-    logger.info(f"Using env file: {ENV_FILE}")
-
-    if os.path.exists(ENV_FILE):
-        load_dotenv(ENV_FILE, override=True)
-        logger.info(f"Loaded environment variables from {ENV_FILE}")
-    else:
-        logger.info(
-            f"Environment file {ENV_FILE} does not exist; using system environment variables."
-        )
-
-    return ENV_FILE
-
-
-ENV_FILE = get_env_file()
+from .utils import get_env_file
 
 
 class BaseConfig(BaseSettings):
@@ -61,7 +32,7 @@ class BaseConfig(BaseSettings):
         **{
             "case_sensitive": False,
             "extra": "ignore",
-            "env_prefix": ".env",
+            "env_prefix": get_env_file(),
             "env_file_encoding": "utf-8",
         }
     )
