@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 class UserRole(enum.StrEnum):
     ADMIN = "admin"
     USER = "user"
+    BANNED = "banned"
 
 
 class User(Base):
@@ -25,6 +26,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_logged_in: Mapped[bool] = mapped_column(Boolean, default=False)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.USER)
     last_login: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
