@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import dataclass
 import hashlib
 from fastapi import (
     APIRouter,
@@ -10,7 +11,7 @@ from fastapi import (
     Depends,
 )
 from fastapi.responses import ORJSONResponse
-from typing import Annotated, Optional, Dict
+from typing import Annotated, Literal, Optional, Dict
 from dependency_injector.wiring import inject, Provide
 from sqlalchemy.ext.asyncio import AsyncSession
 import uuid
@@ -39,63 +40,45 @@ router = APIRouter(prefix="/onboarding", tags=["Customer Onboarding"])
 registration_sessions = {}
 
 
-@router.post(
-    "/card-ocr",
-    status_code=status.HTTP_200_OK,
-    # response_class=ORJSONResponse,
-)
+@router.post("/card-ocr", status_code=status.HTTP_200_OK)
 @inject
 async def extract_document_info(
-    front: UploadFile = File(
-        ..., description="1-2 document images to process", media_type="image/*"
-    ),
-    back: Annotated[UploadFile, Optional] = File(
-        None, description="Optional second document image", media_type="image/*"
-    ),
+    front: UploadFile = File(...),
+    back: Annotated[UploadFile, Optional] = File(None),
     verification_service: VerificationService = Depends(
         Provide[Container.verification_service]
     ),
     db: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_active_user),
 ):
-    """
-    Step 1: Document Upload and Information Extraction
-    - Extracts information from documents using Claude
-    - Stores documents in S3
-    - Creates registration session
-    """
-
     allowed_types = {"image/jpeg", "image/png", "image/gif"}
-    not_img = next(
-        (
-            file
-            for file in (front, back)
-            if (not file is None) and (file.content_type not in allowed_types)
-        ),
-        None,
-    )
-    if not_img:
-        raise HTTPException(
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=f"Only image files are allowed. Invalid file: {not_img.filename}",
-        )
+    for doc in (front, back):
+        if doc and doc.content_type not in allowed_types:
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail=f"Only image files allowed. Invalid file: {doc.filename}",
+            )
+
     try:
-        images = [await doc.read() for doc in (front, back) if doc]
+        upload_tasks = []
+        if front:
+            upload_tasks.append(
+                verification_service.face_service.process_single_image(front, "front")
+            )
+        if back:
+            upload_tasks.append(
+                verification_service.face_service.process_single_image(back, "back")
+            )
+
+        results = await asyncio.gather(*upload_tasks)
 
         images = []
         s3_paths = []
 
-        for doc in (front, back):
-            if doc:
-                content = await doc.read()
-                hash_md5 = hashlib.md5(content).hexdigest()
-                exists = await verification_service.face_service.check_s3_object(hash_md5)
-                if not exists:
-                    s3_path = await verification_service.face_service.upload_to_s3(content, key=hash_md5)
-                else:
-                    s3_path = f"s3://your-bucket/{hash_md5}"
-                images.append(content)
-                s3_paths.append(s3_path)
+        for result in results:
+            images.append(result.content)
+            s3_paths.append(result.s3_path)
+
         result = await verification_service.verify_document(document_images=images)
 
         if not result.success or not result.details:
@@ -103,9 +86,9 @@ async def extract_document_info(
                 status_code=status.HTTP_400_BAD_REQUEST, detail=result.message
             )
 
-        session_id = str(uuid.uuid4())
+        # session_id = str(uuid.uuid4())
         db_data = await OnboardingUtils.get_id_card_data_by_id_card_number(
-            db, result.details["extracted_info"]["id_number"]
+            db, result.details["id_number"]
         )
         if db_data:
             raise HTTPException(
@@ -114,68 +97,43 @@ async def extract_document_info(
 
         id_data = IdCardData(
             user_id=user.id,
-            urls=result.details["urls"],
-            **result.details["extracted_info"],
+            urls=s3_paths,
+            **result.details,
         )
 
-        db_data = await OnboardingUtils.add_id_card_data(db, id_data)
-        return db_data
-
-        registration_sessions[session_id] = {
-            "id_card_info": result.details,
-            "id_photo_path": result.details["images_path"][
-                0
-            ],  # S3 key for face comparison
-            "status": "documents_verified",
-            "created_at": datetime.now().isoformat(),
-        }
-
-        return ORJSONResponse(
-            status_code=status.HTTP_201_CREATED,
-            content={
-                "status": "success",
-                "data": result.details,
-                "session_id": session_id,
-            },
-        )
+        return await OnboardingUtils.add_id_card_data(db, id_data)
 
     except Exception as e:
-        logger.error(f"Document extraction failed: {str(e)}")
+        logger.error(f"Error processing document: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error processing documents: {str(e)}",
+            detail=f"Error processing document: {str(e)}",
         )
 
+        # registration_sessions[session_id] = {
+        #     "id_card_info": result.details,
+        #     "id_photo_path": result.details["images_path"][
+        #         0
+        #     ],  # S3 key for face comparison
+        #     "status": "documents_verified",
+        #     "created_at": datetime.now().isoformat(),
+        # }
 
-# {
-#   "status": "success",
-#   "data": {
-#     "extracted_info": {
-#       "document_type": "national_id",
-#       "full_name": "GYIMAH GIDEON",
-#       "date_of_birth": "1999-08-24",
-#       "date_of_issue": "2020-01-09",
-#       "date_of_expiry": "2030-01-08",
-#       "document_number": "AJ9586807",
-#       "id_number": "GHA-718002692-5",
-#       "nationality": "GHANAIAN",
-#       "gender": "M",
-#       "address": {
-#         "street": null,
-#         "city": "ACCRA",
-#         "state": null,
-#         "postal_code": null,
-#         "country": "GHANA"
-#       },
-#       "confidence": 0.95
-#     },
-#     "images_path": [
-#       "documents/05985b9a-5315-49ea-9ae3-d8e433637e0a_20241217_102351.jpg",
-#       "documents/8be50fd4-87da-42e2-b5cc-ec5d33deafde_20241217_102353.jpg"
-#     ]
-#   },
-#   "session_id": "95e22bee-6a53-486d-9eef-adcd12f97633"
-# }
+        # return ORJSONResponse(
+        #     status_code=status.HTTP_201_CREATED,
+        #     content={
+        #         "status": "success",
+        #         "data": result.details,
+        #         "session_id": session_id,
+        #     },
+        # )
+
+    # except Exception as e:
+    #     logger.error(f"Document extraction failed: {str(e)}")
+    #     raise HTTPException(
+    #         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    #         detail=f"Error processing documents: {str(e)}",
+    #     )
 
 
 @router.post("/verify-face/{session_id}")

@@ -1,10 +1,20 @@
+from dataclasses import dataclass
 from datetime import datetime
+import hashlib
 import uuid
 import boto3
-from typing import Dict, Optional, Tuple
+from typing import Dict, Literal, Optional, Tuple
 from botocore.exceptions import ClientError
+from fastapi import UploadFile
 from library.config import settings
 from loguru import logger
+
+
+@dataclass
+class ImageUploadResult:
+    prefix: str
+    content: bytes
+    s3_path: str
 
 
 class FaceVerificationService:
@@ -34,7 +44,6 @@ class FaceVerificationService:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         s3_key = f"documents/{doc_id}_{timestamp}.jpg"
         return s3_key
-    
 
     async def check_image_quality(self, image_bytes: bytes) -> Dict:
         """
@@ -128,11 +137,55 @@ class FaceVerificationService:
                 ContentType="image/jpeg",
             )
             s3_uri = f"s3://{self.bucket_name}/{key}"
-            return key
+            return s3_uri
         except ClientError as e:
             error_msg = f"Failed to upload image to S3: {str(e)}"
             logger.error(error_msg)
             raise Exception(error_msg)
+
+    async def delete_from_s3(self, key: str) -> None:
+        """
+        Delete object from S3 bucket
+
+        Args:
+            key: S3 object key (path/filename)
+        """
+        try:
+            self.s3.delete_object(Bucket=self.bucket_name, Key=key)
+        except ClientError as e:
+            error_msg = f"Failed to delete image from S3: {str(e)}"
+            logger.error(error_msg)
+            raise Exception(error_msg)
+
+    async def get_image_url_if_exists(self, key: str) -> Optional[str]:
+        try:
+            self.s3.head_object(Bucket=self.bucket_name, Key=key)
+            logger.info(f"Image found in S3: {key}")
+            return f"s3://{self.bucket_name}/{key}"
+        except ClientError as e:
+            logger.warning(f"Image not found in S3: {key}")
+            if e.response["Error"]["Code"] == "404":
+                return None
+            error_msg = f"Failed to get image URL from S3: {str(e)}"
+            logger.error(error_msg)
+            raise Exception(error_msg)
+
+    async def process_single_image(
+        self,
+        doc: UploadFile,
+        prefix: str,
+    ) -> ImageUploadResult:
+        content = await doc.read()
+        await doc.seek(0)
+
+        hash_md5 = hashlib.md5(content).hexdigest()
+        key = f"{prefix}/{hash_md5}"
+
+        s3_path = await self.get_image_url_if_exists(key)
+        if not s3_path:
+            s3_path = await self.upload_to_s3(content, key=key)
+
+        return ImageUploadResult(prefix=prefix, content=content, s3_path=s3_path)
 
     async def verify_face_quality(self, image_bytes: bytes) -> Tuple[bool, Dict]:
         """

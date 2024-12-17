@@ -35,7 +35,6 @@ class VerificationService:
         """
         Process and verify uploaded ID document
         - Extracts information using Claude OCR
-        - Stores document in S3
         """
         try:
             doc_result = await self.ocr_processor.process_images(document_images)
@@ -45,7 +44,7 @@ class VerificationService:
                 success=True,
                 stage="document_verification",
                 message="Document processed successfully",
-                details=doc_result.model_dump()
+                details=doc_result.model_dump(),
             )
 
         except Exception as e:
