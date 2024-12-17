@@ -34,6 +34,79 @@ class FaceVerificationService:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         s3_key = f"documents/{doc_id}_{timestamp}.jpg"
         return s3_key
+    
+
+    async def check_image_quality(self, image_bytes: bytes) -> Dict:
+        """
+        Check image quality using AWS Rekognition DetectModerationLabels
+
+        Args:
+            image_bytes: Image data in bytes
+
+        Returns:
+            Dict: Quality check results
+        """
+        logger.info("Starting image quality check")
+        try:
+            response = self.rekognition.detect_moderation_labels(
+                Image={"Bytes": image_bytes}
+            )
+
+            is_human = False
+            is_face_detected = False
+            face_occluded = False
+            pose_valid = False
+            eyes_open = False
+            quality_brightness = False
+            quality_sharpness = False
+            sunglasses = False
+            mouth_open = False
+            multiple_faces = False
+
+            for label in response.get("ModerationLabels", []):
+                if label["Name"] == "Human":
+                    is_human = True
+                if label["Name"] == "Face":
+                    is_face_detected = True
+                if label["Name"] == "Sunglasses":
+                    sunglasses = True
+                if label["Name"] == "EyesOpen":
+                    eyes_open = True
+                if label["Name"] == "MouthOpen":
+                    mouth_open = True
+                if label["Name"] == "FaceOccluded":
+                    face_occluded = True
+                if label["Name"] == "Pose":
+                    pose_valid = True
+                if label["Name"] == "Apparel":
+                    if label["Confidence"] > 90:
+                        multiple_faces = True
+
+            # Image quality checks
+            brightness = response.get("ImageQuality", {}).get("Brightness", 0)
+            sharpness = response.get("ImageQuality", {}).get("Sharpness", 0)
+
+            quality_brightness = brightness > 50
+            quality_sharpness = sharpness > 50
+
+            logger.info("Image quality check complete")
+            return {
+                "is_human": is_human,
+                "is_face_detected": is_face_detected,
+                "face_occluded": face_occluded,
+                "pose_valid": pose_valid,
+                "eyes_open": eyes_open,
+                "quality_brightness": quality_brightness,
+                "quality_sharpness": quality_sharpness,
+                "sunglasses": sunglasses,
+                "mouth_open": mouth_open,
+                "multiple_faces": multiple_faces,
+            }
+
+        except ClientError as e:
+            error_msg = f"Failed to check image quality: {str(e)}"
+            logger.error(error_msg)
+            raise Exception(error_msg)
 
     async def upload_to_s3(self, image_bytes: bytes, key: str | None = None) -> str:
         """

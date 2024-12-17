@@ -1,3 +1,5 @@
+import asyncio
+import hashlib
 from fastapi import (
     APIRouter,
     File,
@@ -10,20 +12,28 @@ from fastapi import (
 from fastapi.responses import ORJSONResponse
 from typing import Annotated, Optional, Dict
 from dependency_injector.wiring import inject, Provide
+from sqlalchemy.ext.asyncio import AsyncSession
 import uuid
 from loguru import logger
 from datetime import datetime
 
 
 from bootstrap.container import Container
-from customer.services.customer_service import CustomerService
-from customer.services.verification_service import VerificationService
-from customer.dto.requests.customer_request import (
-    CustomerCreateRequest,
-)
-from customer.dto.response.customer_response import CustomerResponse
 
-router = APIRouter(prefix="/customer", tags=["Customer Onboarding"])
+# from customer.services.customer_service import CustomerService
+from db.models.id_card import IdCardData
+from onboarding.services.verification_service import VerificationService
+
+# from onboarding.dto.requests.customer_request import (
+#     CustomerCreateRequest,
+# )
+# from onboarding.dto.response.customer_response import CustomerResponse
+from .utils import OnboardingUtils
+from auth.dependencies import get_current_active_user
+from db.models.user import User
+from db.session import get_session
+
+router = APIRouter(prefix="/onboarding", tags=["Customer Onboarding"])
 
 # TODO Use Redis or DB to store registration sessions
 registration_sessions = {}
@@ -32,9 +42,7 @@ registration_sessions = {}
 @router.post(
     "/card-ocr",
     status_code=status.HTTP_200_OK,
-    response_class=ORJSONResponse,
-    summary="Extract information from ID cards and initiate registration",
-    description="Upload ID documents and start the registration process",
+    # response_class=ORJSONResponse,
 )
 @inject
 async def extract_document_info(
@@ -47,6 +55,8 @@ async def extract_document_info(
     verification_service: VerificationService = Depends(
         Provide[Container.verification_service]
     ),
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_active_user),
 ):
     """
     Step 1: Document Upload and Information Extraction
@@ -71,6 +81,21 @@ async def extract_document_info(
         )
     try:
         images = [await doc.read() for doc in (front, back) if doc]
+
+        images = []
+        s3_paths = []
+
+        for doc in (front, back):
+            if doc:
+                content = await doc.read()
+                hash_md5 = hashlib.md5(content).hexdigest()
+                exists = await verification_service.face_service.check_s3_object(hash_md5)
+                if not exists:
+                    s3_path = await verification_service.face_service.upload_to_s3(content, key=hash_md5)
+                else:
+                    s3_path = f"s3://your-bucket/{hash_md5}"
+                images.append(content)
+                s3_paths.append(s3_path)
         result = await verification_service.verify_document(document_images=images)
 
         if not result.success or not result.details:
@@ -79,6 +104,22 @@ async def extract_document_info(
             )
 
         session_id = str(uuid.uuid4())
+        db_data = await OnboardingUtils.get_id_card_data_by_id_card_number(
+            db, result.details["extracted_info"]["id_number"]
+        )
+        if db_data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="ID card already exists"
+            )
+
+        id_data = IdCardData(
+            user_id=user.id,
+            urls=result.details["urls"],
+            **result.details["extracted_info"],
+        )
+
+        db_data = await OnboardingUtils.add_id_card_data(db, id_data)
+        return db_data
 
         registration_sessions[session_id] = {
             "id_card_info": result.details,
@@ -104,6 +145,37 @@ async def extract_document_info(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error processing documents: {str(e)}",
         )
+
+
+# {
+#   "status": "success",
+#   "data": {
+#     "extracted_info": {
+#       "document_type": "national_id",
+#       "full_name": "GYIMAH GIDEON",
+#       "date_of_birth": "1999-08-24",
+#       "date_of_issue": "2020-01-09",
+#       "date_of_expiry": "2030-01-08",
+#       "document_number": "AJ9586807",
+#       "id_number": "GHA-718002692-5",
+#       "nationality": "GHANAIAN",
+#       "gender": "M",
+#       "address": {
+#         "street": null,
+#         "city": "ACCRA",
+#         "state": null,
+#         "postal_code": null,
+#         "country": "GHANA"
+#       },
+#       "confidence": 0.95
+#     },
+#     "images_path": [
+#       "documents/05985b9a-5315-49ea-9ae3-d8e433637e0a_20241217_102351.jpg",
+#       "documents/8be50fd4-87da-42e2-b5cc-ec5d33deafde_20241217_102353.jpg"
+#     ]
+#   },
+#   "session_id": "95e22bee-6a53-486d-9eef-adcd12f97633"
+# }
 
 
 @router.post("/verify-face/{session_id}")
@@ -160,69 +232,69 @@ async def verify_face(
         raise HTTPException(status_code=500, detail=error_msg)
 
 
-@router.post("/register/{session_id}", response_model=CustomerResponse)
-@inject
-async def register_customer(
-    session_id: str,
-    background_tasks: BackgroundTasks,
-    customer_data: CustomerCreateRequest,
-    verification_service: VerificationService = Depends(
-        Provide[Container.verification_service]
-    ),
-    customer_service: CustomerService = Depends(Provide[Container.customer_service]),
-) -> CustomerResponse:
-    """
-    Step 3: Complete Registration
-    - Verify all steps are completed
-    - Create customer record with verified information
-    """
-    logger.info(f"Starting customer registration for session: {session_id}")
-    try:
-        if session_id not in registration_sessions:
-            logger.error(f"Invalid session ID: {session_id}")
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Invalid or expired session",
-            )
+# @router.post("/register/{session_id}", response_model=CustomerResponse)
+# @inject
+# async def register_customer(
+#     session_id: str,
+#     background_tasks: BackgroundTasks,
+#     customer_data: CustomerCreateRequest,
+#     verification_service: VerificationService = Depends(
+#         Provide[Container.verification_service]
+#     ),
+#     # customer_service: CustomerService = Depends(Provide[Container.customer_service]),
+# ) -> CustomerResponse:
+#     """
+#     Step 3: Complete Registration
+#     - Verify all steps are completed
+#     - Create customer record with verified information
+#     """
+#     logger.info(f"Starting customer registration for session: {session_id}")
+#     try:
+#         if session_id not in registration_sessions:
+#             logger.error(f"Invalid session ID: {session_id}")
+#             raise HTTPException(
+#                 status_code=status.HTTP_404_NOT_FOUND,
+#                 detail="Invalid or expired session",
+#             )
 
-        session = registration_sessions[session_id]
-        if session["status"] != "face_verified":
-            logger.error(
-                f"Invalid session status for registration: {session['status']}"
-            )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Complete document and face verification first",
-            )
+#         session = registration_sessions[session_id]
+#         if session["status"] != "face_verified":
+#             logger.error(
+#                 f"Invalid session status for registration: {session['status']}"
+#             )
+#             raise HTTPException(
+#                 status_code=status.HTTP_400_BAD_REQUEST,
+#                 detail="Complete document and face verification first",
+#             )
 
-        # Create customer with verified information
-        logger.info("Completing verification and creating customer record")
-        result = await verification_service.complete_verification(
-            session=session, customer_data=customer_data
-        )
+#         # Create customer with verified information
+#         logger.info("Completing verification and creating customer record")
+#         result = await verification_service.complete_verification(
+#             session=session, customer_data=customer_data
+#         )
 
-        if not result.success:
-            logger.error(f"Registration failed: {result.message}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=result.message
-            )
+#         if not result.success:
+#             logger.error(f"Registration failed: {result.message}")
+#             raise HTTPException(
+#                 status_code=status.HTTP_400_BAD_REQUEST, detail=result.message
+#             )
 
-        # Create customer record
-        customer_response = await customer_service.create_customer(customer_data)
+#         # Create customer record
+#         customer_response = await customer_service.create_customer(customer_data)
 
-        # Clean up session in background
-        background_tasks.add_task(registration_sessions.pop, session_id, None)
+#         # Clean up session in background
+#         background_tasks.add_task(registration_sessions.pop, session_id, None)
 
-        logger.success(
-            f"Customer registration completed. Customer ID: {customer_response.customer_id}"
-        )
-        return customer_response
+#         logger.success(
+#             f"Customer registration completed. Customer ID: {customer_response.customer_id}"
+#         )
+#         return customer_response
 
-    except Exception as e:
-        logger.error(f"Registration failed: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        )
+#     except Exception as e:
+#         logger.error(f"Registration failed: {str(e)}")
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+#         )
 
 
 @router.get("/registration-status/{session_id}")

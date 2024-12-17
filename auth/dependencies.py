@@ -4,8 +4,8 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Annotated, Any, Dict, Optional
-from auth.dto import UserCreate
+from typing import Annotated, Optional
+from auth.dto.request import UserCreate
 from db.models.refresh import RefreshToken
 from .security import AuthService
 from db.models.user import User, UserRole
@@ -88,6 +88,7 @@ async def create_new_user(db: AsyncSession, user: UserCreate) -> User:
         )
     new_user = User(
         email=user.email,
+        phone=user.phone,
         role=user.role,
         hashed_password=auth_service.get_password_hash(user.password),
     )
@@ -143,33 +144,33 @@ async def revoke_all_refresh_tokens_except_current(
     await db.commit()
 
 
-def check_login_attempts(email: str) -> None:
-    now = datetime.now(UTC)
-    attempts = _failed_login_attempts.get(email, [])
+# def check_login_attempts(email: str) -> None:
+#     now = datetime.now(UTC)
+#     attempts = _failed_login_attempts.get(email, [])
 
-    valid_attempts = [
-        attempt
-        for attempt in attempts
-        if now - attempt < timedelta(minutes=settings.login_attempt_lockout_minutes)
-    ]
+#     valid_attempts = [
+#         attempt
+#         for attempt in attempts
+#         if now - attempt < timedelta(minutes=settings.login_attempt_lockout_minutes)
+#     ]
 
-    if len(valid_attempts) >= settings.max_login_attempts:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"Too many failed login attempts. Please try again in {settings.login_attempt_lockout_minutes} minutes.",
-        )
+#     if len(valid_attempts) >= settings.max_login_attempts:
+#         raise HTTPException(
+#             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+#             detail=f"Too many failed login attempts. Please try again in {settings.login_attempt_lockout_minutes} minutes.",
+#         )
 
-    self._failed_login_attempts[email] = valid_attempts
-
-
-def record_failed_attempt(email: str) -> None:
-    attempts = self._failed_login_attempts.get(email, [])
-    attempts.append(datetime.now(UTC))
-    self._failed_login_attempts[email] = attempts
+#     self._failed_login_attempts[email] = valid_attempts
 
 
-def clear_login_attempts(email: str) -> None:
-    self._failed_login_attempts.pop(email, None)
+# def record_failed_attempt(email: str) -> None:
+#     attempts = self._failed_login_attempts.get(email, [])
+#     attempts.append(datetime.now(UTC))
+#     self._failed_login_attempts[email] = attempts
+
+
+# def clear_login_attempts(email: str) -> None:
+#     self._failed_login_attempts.pop(email, None)
 
 
 async def authenticate_user(

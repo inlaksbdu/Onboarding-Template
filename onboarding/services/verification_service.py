@@ -5,10 +5,10 @@ from datetime import datetime
 from pydantic import BaseModel
 from loguru import logger
 
-from ocr.extractor import DocumentOCRProcessor
-from customer.services.face_verification_service import FaceVerificationService
-from customer.dto.requests.customer_request import CustomerCreateRequest
-from persistence.db.models.customer import Customer
+from .ocr.extractor import DocumentOCRProcessor
+from onboarding.services.face_verification_service import FaceVerificationService
+# from onboarding.dto.requests.customer_request import CustomerCreateRequest
+# from persistence.db.models.customer import Customer
 
 
 class VerificationResult(BaseModel):
@@ -40,22 +40,12 @@ class VerificationService:
         try:
             doc_result = await self.ocr_processor.process_images(document_images)
 
-            s3_paths = await asyncio.gather(
-                *(
-                    self.face_service.upload_to_s3(document_image)
-                    for document_image in document_images
-                )
-            )
-
             logger.success("Document verification completed successfully")
             return VerificationResult(
                 success=True,
                 stage="document_verification",
                 message="Document processed successfully",
-                details={
-                    "extracted_info": doc_result.model_dump(),
-                    "images_path": s3_paths,
-                },
+                details=doc_result.model_dump()
             )
 
         except Exception as e:
@@ -118,7 +108,7 @@ class VerificationService:
             )
 
     async def complete_verification(
-        self, session: Dict, customer_data: CustomerCreateRequest
+        self, session: Dict, customer_data: "CustomerCreateRequest"
     ) -> VerificationResult:
         """
         Complete full verification process and create customer record

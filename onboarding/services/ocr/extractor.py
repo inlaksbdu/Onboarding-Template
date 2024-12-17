@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from .prompt import SYSTEM_PROMPT
-from .schema import IDDocument
+from .output_schema import IDDocument
 from library.utils import encode_image_to_base64
 
 if TYPE_CHECKING:

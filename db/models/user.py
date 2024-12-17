@@ -12,6 +12,7 @@ from .base import Base
 
 if TYPE_CHECKING:
     from .refresh import RefreshToken
+    from .id_card import IdCardData
 
 
 class UserRole(enum.StrEnum):
@@ -31,6 +32,7 @@ class User(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    phone: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
     account_type: Mapped[AccountType] = mapped_column(
         ENUM(AccountType, name="accounttype"), default=AccountType.INDIVIDUAL
     )
@@ -47,6 +49,15 @@ class User(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    documents: Mapped[list["IdCardData"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", lazy="selectin"
     )
+
+    def add_document(self, document: "IdCardData"):
+        if self.account_type != AccountType.GROUP and len(self.documents) >= 1:
+            raise ValueError("Only group accounts can have multiple ID documents.")
+        self.documents.append(document)

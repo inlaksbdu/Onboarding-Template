@@ -1,16 +1,21 @@
 import re
-from typing import List
 
 import phonenumbers
 from phonenumbers import (
     NumberParseException,
-    PhoneNumberFormat,
     PhoneNumberType,
-    format_number,
-    is_valid_number,
-    number_type,
-    parse as parse_phone_number,
 )
+
+
+def validate_password(password):
+    if not re.match(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[A-Za-z\d\W]{8,}$", password):
+        raise ValueError(
+            "Password must be 8 characters containing at least 1 uppercase letter, "
+            "1 lowercase letter and a number "
+        )
+
+    return password
+
 
 MOBILE_NUMBER_TYPES = PhoneNumberType.MOBILE, PhoneNumberType.FIXED_LINE_OR_MOBILE
 
@@ -31,9 +36,3 @@ def validate_phone(phone):
         raise ValueError("Please provide a valid mobile phone number") from e
 
     return phone
-
-    # if not is_valid_number(n) or number_type(n) not in MOBILE_NUMBER_TYPES:
-    #     raise ValueError('Please provide a valid mobile phone number')
-
-    # return format_number(n, PhoneNumberFormat.NATIONAL if n.country_code == 233
-    # else PhoneNumberFormat.INTERNATIONAL)

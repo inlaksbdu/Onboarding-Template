@@ -13,6 +13,7 @@ from db.models.base import Base
 # from db.models.customer import Customer
 from db.models.user import User
 from db.models.refresh import RefreshToken
+from db.models.id_card import IdCardData
 
 from library.config import settings
 

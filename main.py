@@ -1,5 +1,5 @@
-# from bootstrap.container import Container
-# from customer.api.customer_route import router as customer_router
+from bootstrap.container import Container
+from onboarding.api import router as customer_router
 from auth.api import router as auth_router
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,10 +13,10 @@ import sys
 class App(FastAPI):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # self.container = Container()
-        # self.container.wire(modules=["customer.api.customer_route"])
-        # self.include_router(customer_router)
+        self.container = Container()
+        self.container.wire(modules=["onboarding.api"])
         self.include_router(auth_router)
+        self.include_router(customer_router)
 
         self.add_middleware(
             CORSMiddleware,

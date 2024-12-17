@@ -1,28 +1,7 @@
 from datetime import datetime
 from uuid import UUID
-from loguru import logger
 from pydantic import BaseModel, EmailStr, ConfigDict, field_validator
-from db.models.user import UserRole, AccountType
-
-
-class Token(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str
-
-
-class TokenPayload(BaseModel):
-    refresh_token: str
-
-
-class UserBase(BaseModel):
-    email: EmailStr
-    account_type: AccountType
-    role: UserRole = UserRole.USER
-
-
-class UserCreate(UserBase):
-    password: str
+from .request import UserBase
 
 
 class UserResponse(UserBase):
@@ -42,3 +21,9 @@ class UserResponse(UserBase):
         if (not v is None) and not isinstance(v, datetime):
             return datetime.fromisoformat(v)
         return v
+
+
+class Token(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str

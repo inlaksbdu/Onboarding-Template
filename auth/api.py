@@ -15,7 +15,8 @@ from auth.dependencies import (
 )
 from db.session import get_session
 from .security import AuthService
-from .dto import Token, TokenPayload, UserCreate, UserResponse
+from .dto.request import TokenPayload, UserCreate
+from .dto.response import Token, UserResponse
 from db.models.user import User
 from library.config import settings
 
@@ -30,8 +31,16 @@ async def register_user(
     user_model: UserCreate,
     db: AsyncSession = Depends(get_session),
 ):
-    user = await create_new_user(db, user_model)
-    return user
+    try:
+        user = await create_new_user(db, user_model)
+        return user
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
 
 
 @router.post("/token", response_model=Token)
@@ -185,4 +194,10 @@ async def logout(
 async def get_me(
     current_user: User = Depends(get_current_active_user),
 ):
-    return current_user
+    try:
+        return current_user
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
