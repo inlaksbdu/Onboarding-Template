@@ -2,7 +2,7 @@ from datetime import datetime
 from uuid import UUID
 from loguru import logger
 from pydantic import BaseModel, EmailStr, ConfigDict, field_validator
-from db.models.user import UserRole
+from db.models.user import UserRole, AccountType
 
 
 class Token(BaseModel):
@@ -17,6 +17,7 @@ class TokenPayload(BaseModel):
 
 class UserBase(BaseModel):
     email: EmailStr
+    account_type: AccountType
     role: UserRole = UserRole.USER
 
 
@@ -38,7 +39,6 @@ class UserResponse(UserBase):
     @field_validator("last_login", "created_at", "updated_at", mode="before")
     @classmethod
     def convert_dates(cls, v):
-        logger.debug(v)
         if (not v is None) and not isinstance(v, datetime):
             return datetime.fromisoformat(v)
         return v

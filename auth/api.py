@@ -17,6 +17,7 @@ from db.session import get_session
 from .security import AuthService
 from .dto import Token, TokenPayload, UserCreate, UserResponse
 from db.models.user import User
+from library.config import settings
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -60,7 +61,7 @@ async def login(
             httponly=True,
             secure=True,
             samesite="lax",
-            max_age=1800,  # 30 minutes
+            max_age=settings.access_token_expire_minutes * 60,
         )
         response.set_cookie(
             key="refresh_token",
@@ -68,7 +69,7 @@ async def login(
             httponly=True,
             secure=True,
             samesite="lax",
-            max_age=604800,  # 7 days
+            max_age=settings.refresh_token_expire_days * 24 * 60 * 60,
         )
 
         return Token(
@@ -79,9 +80,10 @@ async def login(
         raise
 
     except Exception as e:
+        logger.error(f"Error logging in: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Something went wrong",
+            detail=str(e),
         )
 
 
@@ -124,7 +126,7 @@ async def refresh_token(
             httponly=True,
             secure=True,
             samesite="lax",
-            max_age=1800,  # 30 minutes
+            max_age=settings.access_token_expire_minutes * 60,
         )
         response.set_cookie(
             key="refresh_token",
@@ -132,7 +134,7 @@ async def refresh_token(
             httponly=True,
             secure=True,
             samesite="lax",
-            max_age=604800,  # 7 days
+            max_age=settings.refresh_token_expire_days * 24 * 60 * 60,
         )
 
         return Token(
@@ -183,5 +185,4 @@ async def logout(
 async def get_me(
     current_user: User = Depends(get_current_active_user),
 ):
-    print(current_user)
     return current_user
